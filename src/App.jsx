@@ -1,0 +1,1674 @@
+import { useState, useEffect, useCallback } from "react";
+
+// ═══ 헤센 공휴일 ═══
+function easter(yr) {
+  const a=yr%19,b=Math.floor(yr/100),c=yr%100,d=Math.floor(b/4),e=b%4,
+    f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,
+    i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+    mo=Math.floor((h+l-7*m+114)/31),dy=((h+l-7*m+114)%31)+1;
+  return new Date(yr,mo-1,dy);
+}
+function addD(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
+function dstr(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+function hessenHols(yr){
+  const e=easter(yr),h={};
+  h[`${yr}-01-01`]="Neujahr";
+  h[`${yr}-05-01`]="Tag der Arbeit";
+  h[`${yr}-10-03`]="Tag der deutschen Einheit";
+  h[`${yr}-12-25`]="1. Weihnachtstag";
+  h[`${yr}-12-26`]="2. Weihnachtstag";
+  h[dstr(addD(e,-2))]="Karfreitag";
+  h[dstr(addD(e,1))]="Ostermontag";
+  h[dstr(addD(e,39))]="Christi Himmelfahrt";
+  h[dstr(addD(e,50))]="Pfingstmontag";
+  h[dstr(addD(e,60))]="Fronleichnam";
+  return h;
+}
+
+const DOW_KO=["일","월","화","수","목","금","토"];
+
+function getSlots(ds){
+  const d=new Date(ds);
+  const dow=d.getDay();
+  const hols=hessenHols(d.getFullYear());
+  if(dow===0||hols[ds]) return [];
+  if(dow>=1&&dow<=4) return [
+    {type:"오프닝",start:"13:00",end:"16:00",hours:3},
+    {type:"클로징",start:"16:00",end:"20:30",hours:4.5}
+  ];
+  if(dow===5) return [
+    {type:"오프닝",start:"13:00",end:"16:00",hours:3},
+    {type:"클로징",start:"16:00",end:"21:00",hours:5}
+  ];
+  if(dow===6) return [
+    {type:"오프닝",start:"11:00",end:"16:00",hours:5},
+    {type:"클로징",start:"16:00",end:"21:00",hours:5}
+  ];
+  return [];
+}
+
+function dowKo(s){return DOW_KO[new Date(s).getDay()];}
+function todayStr(){return dstr(new Date());}
+function curYM(){const n=new Date();return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;}
+function nextYM(ym){const [y,m]=ym.split("-").map(Number);return m===12?`${y+1}-01`:`${y}-${String(m+1).padStart(2,"0")}`;}
+function fmtE(n){return Number(n||0).toFixed(2);}
+function fmt(n){return Number(n||0).toLocaleString("ko-KR");}
+function nid(arr){return arr.length?Math.max(...arr.map(x=>x.id))+1:1;}
+function shiftHours(sh){return sh.hours||(getSlots(sh.date).find(s=>s.type===sh.slotType)||{hours:0}).hours;}
+
+const DEFAULT_PIN = "1234";
+const STORE_KEY = "hamafilm_v2";
+const PIN_KEY = "hamafilm_pin_v2";
+
+const DEFAULT_DATA = {
+  staff: [
+    {id:1,name:"김지현",phone:"",wage:12.41,color:"#5352ed"},
+    {id:2,name:"박소연",phone:"",wage:12.41,color:"#ff6b35"},
+    {id:3,name:"이민준",phone:"",wage:12.41,color:"#4ecdc4"}
+  ],
+  shifts: [],
+  fixed: [],
+  vacations: [],
+  sales: [],
+  payrollRecords: []
+};
+
+// ═══ Google Apps Script 백엔드 ═══
+const GAS_URL = "https://script.google.com/macros/s/AKfycbw48A5z_PANeJWD-GRZbNc0SPj2uZmurngM1TQiq3tx69VDR9zDC153IOsVcxGSGaV8/exec";
+
+let STORAGE_MODE = "loading";
+let LAST_ERROR = "";
+
+async function loadData(){
+  try {
+    const res = await fetch(GAS_URL, { method: "GET", redirect: "follow" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const j = await res.json();
+    STORAGE_MODE = "shared";
+    LAST_ERROR = "";
+    if (j && j.data) {
+      try {
+        const parsed = JSON.parse(j.data);
+        return parsed[STORE_KEY] || null;
+      } catch(e) { return null; }
+    }
+    return null;
+  } catch(e) {
+    LAST_ERROR = e.message || String(e);
+    console.error("GAS load error", e);
+  }
+  try {
+    STORAGE_MODE = "local";
+    const r = localStorage.getItem(STORE_KEY);
+    if (r) return JSON.parse(r);
+  } catch(e) {}
+  return null;
+}
+
+async function saveData(d){
+  try {
+    const existing = await fetchAll();
+    existing[STORE_KEY] = d;
+    const payload = encodeURIComponent(JSON.stringify(existing));
+    const res = await fetch(GAS_URL + "?save=" + payload, { method: "GET", redirect: "follow" });
+    if (res.ok) {
+      STORAGE_MODE = "shared";
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
+      return;
+    }
+  } catch(e) {
+    console.error("GAS save error", e);
+  }
+  try {
+    STORAGE_MODE = "local";
+    localStorage.setItem(STORE_KEY, JSON.stringify(d));
+  } catch(e) {}
+}
+
+async function fetchAll() {
+  try {
+    const res = await fetch(GAS_URL, { method: "GET", redirect: "follow" });
+    if (res.ok) {
+      const j = await res.json();
+      if (j && j.data) return JSON.parse(j.data);
+    }
+  } catch(e) {}
+  return {};
+}
+
+async function loadPin(){
+  try {
+    const all = await fetchAll();
+    if (all[PIN_KEY]) return all[PIN_KEY];
+  } catch(e) {}
+  try {
+    const p = localStorage.getItem(PIN_KEY);
+    if (p) return p;
+  } catch(e) {}
+  return DEFAULT_PIN;
+}
+
+async function savePin(p){
+  try {
+    const existing = await fetchAll();
+    existing[PIN_KEY] = p;
+    const payload = encodeURIComponent(JSON.stringify(existing));
+    await fetch(GAS_URL + "?save=" + payload, { method: "GET", redirect: "follow" });
+    try { localStorage.setItem(PIN_KEY, p); } catch(e) {}
+    return;
+  } catch(e) {}
+  try { localStorage.setItem(PIN_KEY, p); } catch(e) {}
+}
+
+const css = `
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Noto Sans KR', sans-serif; background: #0e0e0e; color: #f0f0f0; min-height: 100vh; }
+.tb { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; height: 50px; background: #1a1a1a; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 50; }
+.logo { font-family: 'Space Mono', monospace; font-size: 14px; font-weight: 700; color: #f5c518; }
+.logo small { color: #aaa; font-size: 10px; font-family: 'Noto Sans KR', sans-serif; margin-left: 5px; }
+.nav { display: flex; gap: 2px; overflow-x: auto; }
+.nt { padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 11px; font-weight: 500; color: #aaa; border: none; background: transparent; white-space: nowrap; }
+.nt.on { color: #f5c518; background: rgba(245,197,24,.1); }
+.pg { padding: 14px; max-width: 900px; margin: 0 auto; }
+.card { background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+.ct { font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.g4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.chip { background: #242424; border-radius: 8px; padding: 12px; }
+.chip .lb { font-size: 10px; color: #666; margin-bottom: 4px; }
+.chip .vl { font-family: 'Space Mono', monospace; font-size: 16px; font-weight: 700; color: #f5c518; }
+.chip .sb { font-size: 10px; color: #666; margin-top: 2px; }
+input, select { background: #242424; border: 1px solid #333; border-radius: 7px; color: #f0f0f0; font-family: 'Noto Sans KR', sans-serif; font-size: 13px; padding: 7px 10px; width: 100%; outline: none; }
+input:focus, select:focus { border-color: #f5c518; }
+label { font-size: 11px; color: #aaa; display: block; margin-bottom: 3px; }
+.fr { display: grid; gap: 8px; margin-bottom: 8px; }
+.fc2 { grid-template-columns: 1fr 1fr; }
+.btn { padding: 7px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; font-family: 'Noto Sans KR', sans-serif; }
+.bp { background: #f5c518; color: #000; }
+.bs { background: #242424; color: #f0f0f0; border: 1px solid #333; }
+.bd { background: rgba(255,71,87,.12); color: #ff4757; border: 1px solid rgba(255,71,87,.25); }
+.bg2 { background: rgba(46,213,115,.12); color: #2ed573; border: 1px solid rgba(46,213,115,.25); }
+.sm { padding: 3px 7px; font-size: 11px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tbl th { padding: 7px 9px; text-align: left; color: #666; font-weight: 500; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #333; }
+.tbl td { padding: 7px 9px; border-bottom: 1px solid rgba(255,255,255,.04); vertical-align: middle; }
+.tbl tr:last-child td { border-bottom: none; }
+.badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.bgrn { background: rgba(46,213,115,.15); color: #2ed573; }
+.bylw { background: rgba(245,197,24,.15); color: #f5c518; }
+.bred { background: rgba(255,71,87,.15); color: #ff4757; }
+.bblu { background: rgba(83,82,237,.2); color: #9998ff; }
+.bgry { background: rgba(255,255,255,.08); color: #aaa; }
+.bprp { background: rgba(165,94,234,.2); color: #c47ff5; }
+.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.mn { font-family: 'Space Mono', monospace; }
+.pos { color: #2ed573; font-family: 'Space Mono', monospace; }
+.cg { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cdow { text-align: center; font-size: 10px; color: #666; padding: 4px 0; font-weight: 600; }
+.cday { min-height: 60px; background: #242424; border-radius: 6px; padding: 4px; cursor: pointer; border: 1px solid transparent; overflow: hidden; }
+.cday.today { border-color: #f5c518; }
+.cday.hol { background: #1c1414; }
+.cday.vac { background: #111a11; }
+.cday.other { opacity: .2; }
+.dn { font-size: 10px; font-weight: 600; margin-bottom: 1px; color: #aaa; }
+.sp { font-size: 8px; font-weight: 600; padding: 1px 3px; border-radius: 2px; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
+.ov { position: fixed; inset: 0; background: rgba(0,0,0,.87); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 12px; }
+.modal { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 20px; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; }
+.modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+.mf { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.slb { display: block; width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #333; background: #242424; color: #f0f0f0; font-family: 'Noto Sans KR', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; margin-bottom: 6px; }
+.slb.sel { border-color: #f5c518; background: rgba(245,197,24,.09); color: #f5c518; }
+.slb.taken { opacity: .5; cursor: default; border-color: #2ed573; }
+.slb.fxd { border-color: rgba(165,94,234,.5); }
+.sln { font-weight: 700; margin-bottom: 1px; }
+.slt { font-size: 11px; color: #aaa; font-family: 'Space Mono', monospace; }
+.spc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.sc { padding: 12px 8px; border-radius: 9px; border: 2px solid #333; background: #242424; cursor: pointer; text-align: center; }
+.sav { width: 38px; height: 38px; border-radius: 50%; margin: 0 auto 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #fff; }
+.snm { font-size: 12px; font-weight: 700; }
+.dp { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
+.dpl { padding: 4px 9px; border-radius: 16px; border: 1px solid #333; background: #242424; cursor: pointer; font-size: 11px; font-weight: 600; color: #aaa; }
+.dpl.on { border-color: #f5c518; background: rgba(245,197,24,.12); color: #f5c518; }
+.fxr { background: #242424; border-radius: 7px; padding: 9px 11px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+.pb { background: #1a1a1a; border: 1px solid #333; border-radius: 14px; padding: 26px 20px; width: 100%; max-width: 280px; text-align: center; }
+.pds { display: flex; gap: 9px; justify-content: center; margin-bottom: 16px; }
+.pde { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #333; background: transparent; }
+.pde.f { background: #f5c518; border-color: #f5c518; }
+.ppd { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.pb2 { padding: 13px; border-radius: 9px; background: #242424; border: 1px solid #333; color: #f0f0f0; font-size: 18px; font-weight: 700; cursor: pointer; font-family: 'Space Mono', monospace; }
+.notice { border-radius: 7px; padding: 9px 12px; font-size: 12px; margin-bottom: 10px; }
+.n-red { background: rgba(255,71,87,.1); border: 1px solid rgba(255,71,87,.3); color: #ff4757; }
+.n-grn { background: rgba(46,213,115,.1); border: 1px solid rgba(46,213,115,.3); color: #2ed573; }
+.n-blu { background: rgba(83,82,237,.1); border: 1px solid rgba(83,82,237,.3); color: #9998ff; }
+@media (max-width: 480px) { .g4 { grid-template-columns: 1fr 1fr; } .g3 { grid-template-columns: 1fr; } }
+`;
+
+// ═══════════════════════════════════════════════════
+// 모든 모달 컴포넌트는 최상위에 정의
+// ═══════════════════════════════════════════════════
+
+function PinChange({ pin, setPin }) {
+  const [np, setNp] = useState("");
+  const [cp, setCp] = useState("");
+  const [msg, setMsg] = useState("");
+  const submit = async () => {
+    if (np.length !== 4) { setMsg("4자리 입력"); return; }
+    if (np !== cp) { setMsg("PIN 불일치"); return; }
+    await savePin(np);
+    setPin(np);
+    setMsg("✅ 변경 완료!");
+    setNp("");
+    setCp("");
+  };
+  return (
+    <div>
+      <div className="fr fc2">
+        <div>
+          <label>새 PIN (4자리)</label>
+          <input type="password" maxLength={4} value={np} onChange={e=>setNp(e.target.value)} placeholder="****" />
+        </div>
+        <div>
+          <label>확인</label>
+          <input type="password" maxLength={4} value={cp} onChange={e=>setCp(e.target.value)} placeholder="****" />
+        </div>
+      </div>
+      {msg ? <div style={{fontSize:12,color:msg.includes("완료")?"#2ed573":"#ff4757",marginBottom:6}}>{msg}</div> : null}
+      <button className="btn bp sm" onClick={submit}>변경</button>
+    </div>
+  );
+}
+
+function AddShiftModal({ modal, data, persist, close, toast, gSt, isVac, vacName }) {
+  const [sid, setSid] = useState(data.staff[0]?.id || 1);
+  const [date, setDate] = useState(modal.date || todayStr());
+  const [sel, setSel] = useState(null);
+  const [memo, setMemo] = useState("");
+  const [cs, setCs] = useState("13:00");
+  const [ce, setCe] = useState("15:00");
+  const hols = hessenHols(new Date(date).getFullYear());
+  const dow = new Date(date).getDay();
+  const slots = getSlots(date);
+  const st = gSt(sid);
+  const ch = (() => {
+    const [sh, sm] = cs.split(":").map(Number);
+    const [eh, em] = ce.split(":").map(Number);
+    return ((eh*60+em) - (sh*60+sm)) / 60;
+  })();
+  const prev = sel === "custom"
+    ? fmtE(Math.max(ch, 0) * (st?.wage || 0))
+    : sel ? fmtE((slots.find(s=>s.type===sel)?.hours || 0) * (st?.wage || 0)) : "";
+
+  const showWarn = hols[date] || dow === 0 || isVac(date);
+  let warnText = "";
+  if (hols[date]) warnText = "🚫 공휴일: " + hols[date];
+  else if (isVac(date)) warnText = "🚫 방학 (" + vacName(date) + ")";
+  else if (dow === 0) warnText = "🚫 일요일";
+
+  const save = async () => {
+    if (!sel) { toast("근무 타입 선택"); return; }
+    let start, end, slotType, hours;
+    if (sel === "custom") {
+      if (ch <= 0) { toast("시간 확인"); return; }
+      start = cs; end = ce; slotType = "직접입력"; hours = ch;
+    } else {
+      const slot = slots.find(s => s.type === sel);
+      if (!slot) return;
+      if ((data.shifts||[]).find(s => s.date===date && s.staffId===sid && s.slotType===sel)) {
+        toast("이미 등록됨"); return;
+      }
+      start = slot.start; end = slot.end; slotType = slot.type; hours = slot.hours;
+    }
+    await persist({...data, shifts: [...(data.shifts||[]), {
+      id: nid(data.shifts||[]), staffId: sid, date, start, end, slotType, hours, memo, source: "manual"
+    }]});
+    close();
+    toast("✅ 저장!");
+  };
+
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>스케줄 추가</h3>
+        <div className="fr fc2">
+          <div>
+            <label>직원</label>
+            <select value={sid} onChange={e=>setSid(parseInt(e.target.value))}>
+              {data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>날짜</label>
+            <input type="date" value={date} onChange={e=>{setDate(e.target.value);setSel(null);}} />
+          </div>
+        </div>
+        {showWarn ? <div className="notice n-red">{warnText}</div> : null}
+        <div style={{fontSize:11,fontWeight:700,color:"#aaa",marginBottom:6}}>근무 타입</div>
+        {slots.map(sl => (
+          <button key={sl.type} className={"slb" + (sel===sl.type ? " sel" : "")} onClick={()=>setSel(sl.type)}>
+            <div className="sln">{sl.type === "오프닝" ? "🌅" : "🌆"} {sl.type}</div>
+            <div className="slt">{sl.start}~{sl.end} {sl.hours}h</div>
+          </button>
+        ))}
+        <button className={"slb" + (sel === "custom" ? " sel" : "")} onClick={()=>setSel("custom")}>
+          <div className="sln">🕐 직접 입력</div>
+          <div className="slt">자유 시간 설정</div>
+        </button>
+        {sel === "custom" ? (
+          <div style={{background:"rgba(245,197,24,.06)",border:"2px solid #f5c518",borderRadius:8,padding:12,marginBottom:8}}>
+            <div className="fr fc2">
+              <div>
+                <label>출근</label>
+                <input type="time" value={cs} onChange={e=>setCs(e.target.value)} />
+              </div>
+              <div>
+                <label>퇴근</label>
+                <input type="time" value={ce} onChange={e=>setCe(e.target.value)} />
+              </div>
+            </div>
+            {ch > 0 ? <div style={{fontSize:12,color:"#2ed573"}}>{ch}시간</div> : null}
+          </div>
+        ) : null}
+        {sel ? (
+          <div style={{background:"#242424",borderRadius:7,padding:9,fontSize:12,color:"#aaa",marginBottom:4}}>
+            예상: <strong style={{color:"#f5c518"}}>€{prev}</strong>
+          </div>
+        ) : null}
+        <div className="fr">
+          <div>
+            <label>메모</label>
+            <input value={memo} onChange={e=>setMemo(e.target.value)} placeholder="선택사항" />
+          </div>
+        </div>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddFixedModal({ data, persist, close, toast }) {
+  const [sid, setSid] = useState(data.staff[0]?.id || 1);
+  const [type, setType] = useState("오프닝");
+  const [dows, setDows] = useState([]);
+  const DN = ["", "월", "화", "수", "목", "금", "토"];
+  const toggle = (d) => {
+    setDows(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  };
+  const save = async () => {
+    if (!dows.length) { toast("요일 선택"); return; }
+    await persist({...data, fixed: [...(data.fixed||[]), {
+      id: nid(data.fixed||[]), staffId: sid, dows, type
+    }]});
+    close();
+    toast("고정 스케줄 저장!");
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>고정 스케줄 추가</h3>
+        <div className="fr fc2">
+          <div>
+            <label>직원</label>
+            <select value={sid} onChange={e=>setSid(parseInt(e.target.value))}>
+              {data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>타입</label>
+            <select value={type} onChange={e=>setType(e.target.value)}>
+              <option value="오프닝">🌅 오프닝</option>
+              <option value="클로징">🌆 클로징</option>
+            </select>
+          </div>
+        </div>
+        <div style={{fontSize:11,fontWeight:700,color:"#aaa",marginBottom:5}}>요일 선택</div>
+        <div className="dp">
+          {[1,2,3,4,5,6].map(d => (
+            <div key={d} className={"dpl" + (dows.includes(d) ? " on" : "")} onClick={()=>toggle(d)}>{DN[d]}</div>
+          ))}
+        </div>
+        <div className="notice n-blu" style={{marginTop:8}}>
+          💡 월~목 오프닝 13~16 / 클로징 16~20:30 / 금 클로징 16~21 / 토 오프닝 11~16
+        </div>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddVacModal({ data, persist, close, toast }) {
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+  const [name, setName] = useState("");
+  const save = async () => {
+    if (!start || !end) { toast("날짜 입력"); return; }
+    if (start > end) { toast("날짜 오류"); return; }
+    await persist({...data, vacations: [...(data.vacations||[]), {
+      id: nid(data.vacations||[]), start, end, name: name || "방학"
+    }]});
+    close();
+    toast("방학 기간 저장!");
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>방학 기간 추가</h3>
+        <div className="fr fc2">
+          <div>
+            <label>시작일</label>
+            <input type="date" value={start} onChange={e=>setStart(e.target.value)} />
+          </div>
+          <div>
+            <label>종료일</label>
+            <input type="date" value={end} onChange={e=>setEnd(e.target.value)} />
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>이름</label>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="여름방학" />
+          </div>
+        </div>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddStaffModal({ modal, data, persist, close, toast }) {
+  const ed = modal.edit;
+  const [name, setName] = useState(ed?.name || "");
+  const [phone, setPhone] = useState(ed?.phone || "");
+  const [wage, setWage] = useState(ed?.wage || 12.41);
+  const [color, setColor] = useState(ed?.color || "#5352ed");
+  const colors = ["#5352ed","#ff6b35","#4ecdc4","#f5c518","#ff4757","#2ed573","#a55eea","#ff6b9d"];
+  const save = async () => {
+    if (!name) { toast("이름 입력"); return; }
+    let nd;
+    if (ed) {
+      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color} : s)};
+    } else {
+      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color}]};
+    }
+    await persist(nd);
+    close();
+    toast("저장!");
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>{ed ? "직원 수정" : "직원 추가"}</h3>
+        <div className="fr fc2">
+          <div>
+            <label>이름</label>
+            <input value={name} onChange={e=>setName(e.target.value)} placeholder="홍길동" />
+          </div>
+          <div>
+            <label>연락처</label>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="010-..." />
+          </div>
+        </div>
+        <div className="fr fc2">
+          <div>
+            <label>시급 (€)</label>
+            <input type="number" value={wage} onChange={e=>setWage(e.target.value)} step="0.01" />
+          </div>
+          <div>
+            <label>색상</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
+              {colors.map(c => (
+                <div key={c} onClick={()=>setColor(c)} style={{width:22,height:22,borderRadius:"50%",background:c,cursor:"pointer",border: color===c ? "2px solid #f5c518" : "2px solid transparent"}} />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddSalesModal({ data, persist, close, toast }) {
+  const [date, setDate] = useState(todayStr());
+  const [v, setV] = useState({pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,sk:0});
+  const upd = (k, val) => setV(p => ({...p, [k]: parseInt(val) || 0}));
+  const save = async () => {
+    if (!date) { toast("날짜 입력"); return; }
+    await persist({...data, sales: [...(data.sales||[]), {id: nid(data.sales||[]), date, ...v}]});
+    close();
+    toast("매출 저장!");
+  };
+  const groups = [
+    {title:"📸 사진", k1:"pc", l1:"현금", k2:"pk", l2:"카드"},
+    {title:"🖨 기계", k1:"mc", l1:"현금", k2:"mk", l2:"카드"},
+    {title:"💍 악세서리", k1:"ac", l1:"현금", k2:"ak", l2:"카드"},
+    {title:"💅 네일", k1:"nc", l1:"현금", k2:"nk", l2:"카드"},
+    {title:"💎 조이스보물", k1:"jc", l1:"현금", k2:"jk", l2:"카드"}
+  ];
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>매출 입력</h3>
+        <div className="fr">
+          <div>
+            <label>날짜</label>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} />
+          </div>
+        </div>
+        {groups.map(g => (
+          <div key={g.title} style={{background:"#242424",borderRadius:8,padding:11,marginBottom:8}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#f5c518",marginBottom:8}}>{g.title}</div>
+            <div className="fr fc2">
+              <div>
+                <label>{g.l1}</label>
+                <input type="number" value={v[g.k1]} onChange={e=>upd(g.k1, e.target.value)} />
+              </div>
+              <div>
+                <label>{g.l2}</label>
+                <input type="number" value={v[g.k2]} onChange={e=>upd(g.k2, e.target.value)} />
+              </div>
+            </div>
+          </div>
+        ))}
+        <div style={{background:"#242424",borderRadius:8,padding:11,marginBottom:8}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#888",marginBottom:8}}>🔒 슈킹</div>
+          <div>
+            <label>금액</label>
+            <input type="number" value={v.sk} onChange={e=>upd("sk", e.target.value)} />
+          </div>
+        </div>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GenFixedModal({ modal, data, persist, close, toast, isVac }) {
+  const [ym, setYm] = useState(modal.ym || curYM());
+  const gen = async () => {
+    if (!(data.fixed||[]).length) { toast("고정 스케줄 먼저 등록하세요"); return; }
+    const [y, m] = ym.split("-").map(Number);
+    const hols = hessenHols(y);
+    const dim = new Date(y, m, 0).getDate();
+    let added = 0;
+    const ns = [...(data.shifts||[])];
+    for (let d = 1; d <= dim; d++) {
+      const ds = `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const dow = new Date(ds).getDay();
+      if (dow === 0 || hols[ds] || isVac(ds)) continue;
+      (data.fixed||[]).forEach(fx => {
+        if (!fx.dows.includes(dow)) return;
+        const slot = getSlots(ds).find(s => s.type === fx.type);
+        if (!slot) return;
+        if (ns.find(s => s.date===ds && s.staffId===fx.staffId && s.slotType===fx.type)) return;
+        ns.push({
+          id: nid(ns), staffId: fx.staffId, date: ds,
+          start: slot.start, end: slot.end, slotType: slot.type,
+          hours: slot.hours, memo: "", source: "fixed"
+        });
+        added++;
+      });
+    }
+    await persist({...data, shifts: ns});
+    close();
+    toast("⚡ " + ym + " 스케줄 " + added + "개 생성!");
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>⚡ 고정 스케줄 자동 생성</h3>
+        <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>방학·공휴일·일요일 제외, 중복 생성 안 함</div>
+        <div className="fr">
+          <div>
+            <label>생성할 월</label>
+            <input type="month" value={ym} onChange={e=>setYm(e.target.value)} />
+          </div>
+        </div>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={gen}>⚡ 생성</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
+  const rec = modal.editRec;
+  const [sid, setSid] = useState(rec?.staffId || data.staff[0]?.id || 1);
+  const [ym, setYm] = useState(rec?.ym || modal.ym || curYM());
+  const [amount, setAmount] = useState(rec?.amount || "");
+  const [hours, setHours] = useState(rec?.hours || "");
+  const [adjType, setAdjType] = useState(rec?.adjType || "없음");
+  const [adjAmt, setAdjAmt] = useState(rec?.adjAmount || "");
+  const [adjDesc, setAdjDesc] = useState(rec?.adjDesc || "");
+  const shifts = (data.shifts||[]).filter(s => s.staffId===sid && s.date.startsWith(ym));
+  let refH = 0;
+  shifts.forEach(s => { refH += shiftHours(s); });
+  const st = gSt(sid);
+  const refPay = fmtE(refH * (st?.wage || 0));
+  const hasAdj = adjType !== "없음" && parseFloat(adjAmt) > 0;
+  const adjSign = adjType === "차감" ? "+" : "-";
+  const adjCol = adjType === "차감" ? "#2ed573" : "#ff4757";
+
+  const save = async () => {
+    if (!amount) { toast("확정급여 입력"); return; }
+    const entry = {
+      id: rec ? rec.id : nid(data.payrollRecords||[]),
+      staffId: sid, ym,
+      amount: parseFloat(amount),
+      hours: parseFloat(hours) || 0,
+      adjType,
+      adjAmount: parseFloat(adjAmt) || 0,
+      adjDesc,
+      savedAt: new Date().toISOString()
+    };
+    let nd;
+    if (rec) {
+      nd = {...data, payrollRecords: (data.payrollRecords||[]).map(r => r.id===rec.id ? entry : r)};
+    } else {
+      nd = {...data, payrollRecords: [...(data.payrollRecords||[]), entry]};
+    }
+    await persist(nd);
+    close();
+    toast("✅ " + (st?.name || "") + " " + ym + " 저장!");
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>{rec ? "급여 수정" : "급여 기록 추가"}</h3>
+        <div className="fr fc2">
+          <div>
+            <label>직원</label>
+            <select value={sid} onChange={e=>setSid(parseInt(e.target.value))}>
+              {data.staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>월</label>
+            <input type="month" value={ym} onChange={e=>setYm(e.target.value)} />
+          </div>
+        </div>
+        <div style={{background:"#242424",borderRadius:7,padding:"8px 11px",fontSize:12,color:"#aaa",marginBottom:10}}>
+          스케줄 기준: <strong>{refH}h</strong> · <strong style={{color:"#f5c518"}}>€{refPay}</strong>
+          <span style={{fontSize:10,color:"#666",marginLeft:6}}>(참고)</span>
+        </div>
+        <div className="fr fc2">
+          <div>
+            <label>확정 급여 (€)</label>
+            <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} step="0.01" placeholder={refPay} />
+          </div>
+          <div>
+            <label>확정 시간 (h)</label>
+            <input type="number" value={hours} onChange={e=>setHours(e.target.value)} step="0.5" placeholder={String(refH)} />
+          </div>
+        </div>
+        <div style={{fontSize:11,fontWeight:700,color:"#ff6b35",margin:"8px 0 5px"}}>⚖️ 조정 (다음달 반영)</div>
+        <div className="fr fc2">
+          <div>
+            <label>유형</label>
+            <select value={adjType} onChange={e=>setAdjType(e.target.value)}>
+              <option value="없음">없음</option>
+              <option value="차감">차감 → 다음달에 더 줌</option>
+              <option value="추가">추가 → 다음달에 덜 줌</option>
+            </select>
+          </div>
+          <div>
+            <label>금액 (€)</label>
+            <input type="number" value={adjAmt} onChange={e=>setAdjAmt(e.target.value)} step="0.01" placeholder="0.00" />
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>사유</label>
+            <input value={adjDesc} onChange={e=>setAdjDesc(e.target.value)} placeholder="예: 미근무 차감" />
+          </div>
+        </div>
+        {parseFloat(amount) > 0 ? (
+          <div style={{background:"rgba(245,197,24,.08)",border:"1px solid rgba(245,197,24,.3)",borderRadius:7,padding:"8px 11px",fontSize:12}}>
+            확정: <strong style={{color:"#4ecdc4"}}>€{fmtE(parseFloat(amount))}</strong>
+            {hasAdj ? (
+              <span style={{marginLeft:8}}>
+                {nextYM(ym)} 조정: <strong style={{color:adjCol}}>{adjSign}€{fmtE(parseFloat(adjAmt))}</strong>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════
+// 탭 컴포넌트들 (각자 useState 사용)
+// ═══════════════════════════════════════════════════
+
+function SalaryTab({ data, persist, setModal, gSt }) {
+  const [salYM, setSalYM] = useState(curYM());
+  const shifts = (data.shifts||[]).filter(s => s.date.startsWith(salYM));
+  const map = {};
+  shifts.forEach(s => {
+    if (!map[s.staffId]) map[s.staffId] = [];
+    map[s.staffId].push(s);
+  });
+  const rows = [];
+  let total = 0;
+  (data.staff||[]).forEach(st => {
+    let h = 0;
+    (map[st.id]||[]).forEach(s => { h += shiftHours(s); });
+    const pay = h * st.wage;
+    total += pay;
+    rows.push({ st, h, pay, cnt: (map[st.id]||[]).length });
+  });
+  const pending = (data.payrollRecords||[]).filter(p =>
+    p.adjType && p.adjType !== "없음" && p.adjAmount > 0 && nextYM(p.ym) === salYM
+  );
+  const prSorted = [...(data.payrollRecords||[])].sort((a, b) =>
+    b.ym.localeCompare(a.ym) || a.staffId - b.staffId
+  );
+
+  return (
+    <div>
+      <div className="fr" style={{marginBottom:12}}>
+        <div>
+          <label>조회 월</label>
+          <input type="month" value={salYM} onChange={e=>setSalYM(e.target.value)} style={{width:180}} />
+        </div>
+      </div>
+      {pending.length > 0 ? (
+        <div style={{borderRadius:9,padding:"12px 14px",marginBottom:12,background:"rgba(255,107,53,.12)",border:"1px solid rgba(255,107,53,.4)"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#ff6b35",marginBottom:7}}>⚠️ 이번달 반영할 조정금액!</div>
+          {pending.map(p => {
+            const st = gSt(p.staffId);
+            const sign = p.adjType === "차감" ? "+" : "-";
+            const col = p.adjType === "차감" ? "#2ed573" : "#ff4757";
+            return (
+              <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,.2)",borderRadius:6,padding:"6px 10px",marginBottom:5}}>
+                <div>
+                  <span className="dot" style={{background:st?.color||"#666"}} />
+                  <strong>{st?.name||"?"}</strong>
+                  <span className={"badge " + (p.adjType==="차감" ? "bgrn" : "bred")} style={{marginLeft:6}}>{p.adjType}</span>
+                </div>
+                <strong style={{color:col,fontFamily:"monospace"}}>{sign}€{fmtE(p.adjAmount)}</strong>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      <div className="g3" style={{marginBottom:12}}>
+        {rows.map(r => (
+          <div key={r.st.id} className="chip">
+            <div className="lb"><span className="dot" style={{background:r.st.color}} />{r.st.name}</div>
+            <div className="vl">€{fmtE(r.pay)}</div>
+            <div className="sb">{r.h}h · {r.cnt}회</div>
+          </div>
+        ))}
+        <div className="chip" style={{border:"1px solid #f5c518"}}>
+          <div className="lb">전체</div>
+          <div className="vl">€{fmtE(total)}</div>
+          <div className="sb">{salYM}</div>
+        </div>
+      </div>
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ct">급여 상세</div>
+        <table className="tbl">
+          <thead><tr><th>직원</th><th>시간</th><th>시급</th><th>급여</th><th>횟수</th></tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.st.id}>
+                <td><span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong></td>
+                <td>{r.h}h</td>
+                <td className="mn">€{fmtE(r.st.wage)}/h</td>
+                <td className="pos">€{fmtE(r.pay)}</td>
+                <td style={{color:"#666"}}>{r.cnt}회</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="card" style={{border:"1px solid rgba(78,205,196,.3)"}}>
+        <div className="ct" style={{color:"#4ecdc4",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span>📋 회계사 리포트</span>
+          <button className="btn bs sm" onClick={()=>setModal({type:"addPayroll", ym:salYM})}>+ 추가</button>
+        </div>
+        {prSorted.length === 0 ? (
+          <p style={{color:"#666",fontSize:12}}>없음</p>
+        ) : (
+          <table className="tbl">
+            <thead><tr><th>직원</th><th>월</th><th>시간</th><th>확정급여</th><th>조정</th><th>반영월</th><th></th></tr></thead>
+            <tbody>
+              {prSorted.map(p => {
+                const st = gSt(p.staffId);
+                const ha = p.adjType && p.adjType !== "없음" && p.adjAmount > 0;
+                const ac = p.adjType === "차감" ? "#2ed573" : "#ff4757";
+                const as = p.adjType === "차감" ? "+" : "-";
+                return (
+                  <tr key={p.id}>
+                    <td><span className="dot" style={{background:st?.color||"#666"}} />{st?.name||"?"}</td>
+                    <td style={{fontWeight:600}}>{p.ym}</td>
+                    <td className="mn">{p.hours||"—"}h</td>
+                    <td className="mn" style={{color:"#4ecdc4"}}>€{fmtE(p.amount)}</td>
+                    <td className="mn" style={{color:ha?ac:"#666"}}>{ha ? (as+"€"+fmtE(p.adjAmount)) : "—"}</td>
+                    <td style={{fontSize:11,color:"#ff6b35"}}>{ha ? nextYM(p.ym) : "—"}</td>
+                    <td>
+                      <button className="btn bs sm" onClick={()=>setModal({type:"addPayroll", editRec:p, ym:p.ym})}>수정</button>
+                      <button className="btn bd sm" style={{marginLeft:3}} onClick={async()=>await persist({...data, payrollRecords:(data.payrollRecords||[]).filter(r=>r.id!==p.id)})}>삭제</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SalesTab({ data, persist, setModal }) {
+  const [fd, setFd] = useState("");
+  let sales = [...(data.sales||[])].sort((a, b) => b.date.localeCompare(a.date));
+  if (fd) sales = sales.filter(s => s.date === fd);
+  const T = {pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,sk:0};
+  sales.forEach(r => Object.keys(T).forEach(k => { T[k] += (r[k]||0); }));
+  const tot = Object.values(T).reduce((a, b) => a + b, 0);
+  const rT = r => (r.pc||0)+(r.pk||0)+(r.mc||0)+(r.mk||0)+(r.ac||0)+(r.ak||0)+(r.nc||0)+(r.nk||0)+(r.jc||0)+(r.jk||0)+(r.sk||0);
+  const cell = v => v ? <span>{fmt(v)}</span> : <span style={{color:"#444"}}>-</span>;
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
+        <input type="date" value={fd} onChange={e=>setFd(e.target.value)} style={{width:155}} />
+        <button className="btn bp sm" onClick={()=>setModal({type:"addSales"})}>+ 입력</button>
+        {fd ? <button className="btn bs sm" onClick={()=>setFd("")}>전체</button> : null}
+      </div>
+      <div className="g4" style={{marginBottom:12}}>
+        <div className="chip"><div className="lb">📸 사진</div><div className="vl">{fmt(T.pc+T.pk+T.mc+T.mk)}</div></div>
+        <div className="chip"><div className="lb">💍+💅+💎</div><div className="vl">{fmt(T.ac+T.ak+T.nc+T.nk+T.jc+T.jk)}</div></div>
+        <div className="chip"><div className="lb">🔒 슈킹</div><div className="vl" style={{color:"#888"}}>{fmt(T.sk)}</div></div>
+        <div className="chip" style={{border:"1px solid #f5c518"}}><div className="lb">전체</div><div className="vl">{fmt(tot)}</div></div>
+      </div>
+      <div className="card" style={{overflowX:"auto"}}>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>날짜</th><th>📸현금</th><th>📸카드</th><th>🖨현금</th><th>🖨카드</th>
+              <th>💍현금</th><th>💍카드</th><th>💅현금</th><th>💅카드</th>
+              <th>💎현금</th><th>💎카드</th><th>🔒슈킹</th><th>합계</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sales.length === 0 ? (
+              <tr><td colSpan={14} style={{textAlign:"center",color:"#666",padding:16}}>없음</td></tr>
+            ) : (
+              sales.map(r => (
+                <tr key={r.id}>
+                  <td style={{fontWeight:600,whiteSpace:"nowrap"}}>{r.date}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.pc)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.pk)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.mc)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.mk)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.ac)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.ak)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.nc)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.nk)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.jc)}</td>
+                  <td className="mn" style={{fontSize:11}}>{cell(r.jk)}</td>
+                  <td className="mn" style={{color:"#888",fontSize:11}}>{r.sk ? fmt(r.sk) : <span style={{color:"#444"}}>-</span>}</td>
+                  <td className="mn" style={{fontWeight:700,color:"#f5c518"}}>{fmt(rT(r))}</td>
+                  <td>
+                    <button className="btn bd sm" onClick={async()=>await persist({...data, sales:(data.sales||[]).filter(s=>s.id!==r.id)})}>삭제</button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StatsTab({ data }) {
+  const [stYM, setStYM] = useState(curYM());
+  const sales = (data.sales||[]).filter(s => s.date.startsWith(stYM));
+  const sv = k => sales.reduce((t, r) => t + (r[k]||0), 0);
+  const photo = sv("pc")+sv("pk")+sv("mc")+sv("mk");
+  const acc = sv("ac")+sv("ak");
+  const nail = sv("nc")+sv("nk");
+  const joys = sv("jc")+sv("jk");
+  const sk = sv("sk");
+  const rep = photo+acc+nail+joys;
+  const all = rep+sk;
+  const cash = sv("pc")+sv("mc")+sv("ac")+sv("nc")+sv("jc")+sk;
+  const card = sv("pk")+sv("mk")+sv("ak")+sv("nk")+sv("jk");
+  const cats = [
+    {n:"📸 사진 현금", v:sv("pc"), c:"#f5c518"},
+    {n:"📸 사진 카드", v:sv("pk"), c:"#f5c518"},
+    {n:"🖨 기계 현금", v:sv("mc"), c:"#ffd700"},
+    {n:"🖨 기계 카드", v:sv("mk"), c:"#ffd700"},
+    {n:"💍 악세서리 현금", v:sv("ac"), c:"#ff6b35"},
+    {n:"💍 악세서리 카드", v:sv("ak"), c:"#ff6b35"},
+    {n:"💅 네일 현금", v:sv("nc"), c:"#ff4757"},
+    {n:"💅 네일 카드", v:sv("nk"), c:"#ff4757"},
+    {n:"💎 조이스 현금", v:sv("jc"), c:"#5352ed"},
+    {n:"💎 조이스 카드", v:sv("jk"), c:"#5352ed"},
+    {n:"🔒 슈킹", v:sv("sk"), c:"#555"}
+  ];
+  const mx = Math.max(...cats.map(c => c.v), 1);
+
+  return (
+    <div>
+      <div className="fr" style={{marginBottom:12}}>
+        <div>
+          <label>조회 월</label>
+          <input type="month" value={stYM} onChange={e=>setStYM(e.target.value)} style={{width:180}} />
+        </div>
+      </div>
+      <div className="g4" style={{marginBottom:10}}>
+        <div className="chip"><div className="lb">📸 사진</div><div className="vl">{fmt(photo)}</div></div>
+        <div className="chip"><div className="lb">💍 악세서리</div><div className="vl">{fmt(acc)}</div></div>
+        <div className="chip"><div className="lb">💅 네일</div><div className="vl">{fmt(nail)}</div></div>
+        <div className="chip"><div className="lb">💎 조이스보물</div><div className="vl">{fmt(joys)}</div></div>
+      </div>
+      <div className="g3" style={{marginBottom:10}}>
+        <div className="chip"><div className="lb">💵 현금</div><div className="vl">{fmt(cash)}</div></div>
+        <div className="chip"><div className="lb">💳 카드</div><div className="vl">{fmt(card)}</div></div>
+        <div className="chip"><div className="lb">🔒 슈킹</div><div className="vl" style={{color:"#888"}}>{fmt(sk)}</div></div>
+      </div>
+      <div className="g2" style={{marginBottom:12}}>
+        <div className="chip" style={{border:"1px solid #555"}}>
+          <div className="lb">세금청 신고 (슈킹 제외)</div>
+          <div className="vl" style={{color:"#4ecdc4"}}>{fmt(rep)}</div>
+        </div>
+        <div className="chip" style={{border:"1px solid #f5c518"}}>
+          <div className="lb">내부 전체 (슈킹 포함)</div>
+          <div className="vl">{fmt(all)}</div>
+          <div className="sb">{sales.length}일</div>
+        </div>
+      </div>
+      <div className="card">
+        {cats.map(c => (
+          <div key={c.n} style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+              <span style={{fontSize:12}}>{c.n}</span>
+              <span className="mn" style={{fontSize:12,color:"#aaa"}}>{fmt(c.v)}</span>
+            </div>
+            <div style={{background:"#242424",borderRadius:4,height:6,overflow:"hidden"}}>
+              <div style={{height:"100%", width:((c.v/mx*100).toFixed(1)+"%"), background:c.c, borderRadius:4}} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════
+// 메인 App
+// ═══════════════════════════════════════════════════
+
+export default function App() {
+  const [data, setData] = useState(null);
+  const [pin, setPin] = useState(DEFAULT_PIN);
+  const [mode, setMode] = useState("staff");
+  const [adminTab, setAdminTab] = useState("schedule");
+  const [calY, setCalY] = useState(new Date().getFullYear());
+  const [calM, setCalM] = useState(new Date().getMonth());
+  const [modal, setModal] = useState(null);
+  const [toast, setToast] = useState("");
+  const [pinBuf, setPinBuf] = useState("");
+  const [pinErr, setPinErr] = useState("");
+  const [svSid, setSvSid] = useState(null);
+  const [svDate, setSvDate] = useState(todayStr());
+  const [svSel, setSvSel] = useState(null);
+  const [storageMode, setStorageMode] = useState("loading");
+  const [lastError, setLastError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const d = await loadData();
+      setData(d || DEFAULT_DATA);
+      const p = await loadPin();
+      setPin(p);
+      setStorageMode(STORAGE_MODE);
+      setLastError(LAST_ERROR);
+    })();
+  }, []);
+
+  // 다른 사용자가 변경한 데이터를 주기적으로 가져옴 (실시간 동기화)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const d = await loadData();
+        if (d) setData(d);
+        setStorageMode(STORAGE_MODE);
+        setLastError(LAST_ERROR);
+      } catch(e) {}
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const persist = useCallback(async (nd) => {
+    setData(nd);
+    await saveData(nd);
+  }, []);
+
+  const showToast = useCallback((msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2400);
+  }, []);
+
+  const closeModal = useCallback(() => setModal(null), []);
+
+  if (!data) {
+    return (
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#0e0e0e",color:"#f5c518",fontFamily:"monospace",fontSize:18}}>
+        🦛 로딩중…
+      </div>
+    );
+  }
+
+  const gSt = (id) => (data.staff||[]).find(s => s.id == id);
+  const isVac = (ds) => (data.vacations||[]).some(v => ds >= v.start && ds <= v.end);
+  const vacName = (ds) => {
+    const v = (data.vacations||[]).find(v => ds >= v.start && ds <= v.end);
+    return v ? v.name : "";
+  };
+
+  const doPinInput = (d) => {
+    if (pinBuf.length >= 4) return;
+    const nb = pinBuf + d;
+    setPinBuf(nb);
+    if (nb.length === 4) {
+      setTimeout(() => {
+        if (nb === pin) {
+          setMode("admin");
+          setPinBuf("");
+          setPinErr("");
+          setModal(null);
+        } else {
+          setPinErr("PIN 오류");
+          setPinBuf("");
+        }
+      }, 120);
+    }
+  };
+
+  // ─── 달력 ───
+  const renderCal = () => {
+    const hols = hessenHols(calY);
+    const first = new Date(calY, calM, 1).getDay();
+    const dim = new Date(calY, calM+1, 0).getDate();
+    const dprev = new Date(calY, calM, 0).getDate();
+    const cells = [];
+    for (let i = first - 1; i >= 0; i--) cells.push({ d: dprev - i, other: true });
+    for (let i = 1; i <= dim; i++) cells.push({ d: i, other: false });
+    while (cells.length % 7 !== 0) cells.push({ d: cells.length - first - dim + 1, other: true });
+    const td = todayStr();
+    const pfx = `${calY}-${String(calM+1).padStart(2,"0")}`;
+    const ms = (data.shifts||[]).filter(s => s.date.startsWith(pfx)).sort((a, b) => a.date.localeCompare(b.date));
+
+    const prevMonth = () => {
+      if (calM === 0) { setCalY(y => y-1); setCalM(11); }
+      else setCalM(m => m-1);
+    };
+    const nextMonth = () => {
+      if (calM === 11) { setCalY(y => y+1); setCalM(0); }
+      else setCalM(m => m+1);
+    };
+
+    return (
+      <div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{fontSize:16,fontWeight:700}}>{calY}년 {calM+1}월</div>
+          <div style={{display:"flex",gap:5}}>
+            <button className="btn bs sm" onClick={prevMonth}>◀</button>
+            <button className="btn bs sm" onClick={nextMonth}>▶</button>
+            <button className="btn bg2 sm" onClick={()=>setModal({type:"genFixed", ym:pfx})}>⚡고정</button>
+            <button className="btn bp sm" onClick={()=>setModal({type:"addShift", date:todayStr()})}>+추가</button>
+          </div>
+        </div>
+        <div className="cg">
+          {DOW_KO.map((d, i) => (
+            <div key={d} className="cdow" style={{color: i===0 ? "#ff4757" : ""}}>{d}</div>
+          ))}
+          {cells.map((c, idx) => {
+            const ds = `${calY}-${String(calM+1).padStart(2,"0")}-${String(c.d).padStart(2,"0")}`;
+            const dow = new Date(ds).getDay();
+            const isH = !c.other && !!hols[ds];
+            const isV = !c.other && isVac(ds);
+            const isT = ds === td && !c.other;
+            const shifts = (data.shifts||[]).filter(s => s.date === ds);
+            const sorted = [...shifts].sort((a, b) => (a.slotType==="오프닝"?0:1) - (b.slotType==="오프닝"?0:1));
+            let nc = "#aaa";
+            if ((dow === 0 || isH) && !c.other) nc = "#ff4757";
+            else if (isV && !c.other) nc = "#2ed573";
+            const cls = "cday" +
+              (c.other ? " other" : "") +
+              (isH ? " hol" : "") +
+              (isV && !isH ? " vac" : "") +
+              (isT ? " today" : "");
+            const handleClick = () => { if (!c.other) setModal({type:"dayDetail", date:ds}); };
+            return (
+              <div key={idx} className={cls} onClick={handleClick}>
+                <div className="dn" style={{color:nc}}>{c.d}</div>
+                {sorted.slice(0, 4).map(sh => {
+                  const st = gSt(sh.staffId);
+                  const bg = st ? (st.color + "28") : "#333";
+                  const fg = st ? st.color : "#aaa";
+                  const nm = st ? st.name.slice(0, 3) : "?";
+                  return (
+                    <div key={sh.id} className="sp" style={{background:bg, color:fg}}>{nm}</div>
+                  );
+                })}
+                {shifts.length > 4 ? (
+                  <div style={{fontSize:7,color:"#666"}}>+{shifts.length-4}</div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{marginTop:14}}>
+          <div style={{fontSize:14,fontWeight:700,marginBottom:8}}>이번달 스케줄</div>
+          <div className="card" style={{overflowX:"auto"}}>
+            <table className="tbl">
+              <thead>
+                <tr><th>직원</th><th>날짜</th><th>타입</th><th>시간</th><th>h</th><th>급여</th><th>출처</th><th></th></tr>
+              </thead>
+              <tbody>
+                {ms.length === 0 ? (
+                  <tr><td colSpan={8} style={{textAlign:"center",color:"#666",padding:14}}>없음</td></tr>
+                ) : (
+                  ms.map(sh => {
+                    const st = gSt(sh.staffId);
+                    const h = shiftHours(sh);
+                    const pay = fmtE(h * (st?.wage || 0));
+                    let srcCls = "bgry";
+                    let srcLbl = "수동";
+                    if (sh.source === "fixed") { srcCls = "bprp"; srcLbl = "고정"; }
+                    else if (sh.source === "share") { srcCls = "bblu"; srcLbl = "직원"; }
+                    let typeCls = "bgry";
+                    if (sh.slotType === "오프닝") typeCls = "bylw";
+                    else if (sh.slotType === "클로징") typeCls = "bgrn";
+                    return (
+                      <tr key={sh.id}>
+                        <td><span className="dot" style={{background:st?.color||"#666"}} />{st?.name||"?"}</td>
+                        <td>{sh.date}({dowKo(sh.date)})</td>
+                        <td><span className={"badge " + typeCls}>{sh.slotType}</span></td>
+                        <td className="mn" style={{fontSize:11}}>{sh.start}~{sh.end}</td>
+                        <td>{h}h</td>
+                        <td className="pos">€{pay}</td>
+                        <td><span className={"badge " + srcCls}>{srcLbl}</span></td>
+                        <td>
+                          <button className="btn bd sm" onClick={async()=>{
+                            await persist({...data, shifts:(data.shifts||[]).filter(s=>s.id!==sh.id)});
+                            showToast("삭제");
+                          }}>삭제</button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ─── 고정 ───
+  const renderFixed = () => {
+    const DN = ["", "월", "화", "수", "목", "금", "토"];
+    const byStaff = {};
+    (data.fixed||[]).forEach(f => {
+      if (!byStaff[f.staffId]) byStaff[f.staffId] = [];
+      byStaff[f.staffId].push(f);
+    });
+    return (
+      <div>
+        <div className="card">
+          <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>방학 기간</span>
+            <button className="btn bs sm" onClick={()=>setModal({type:"addVac"})}>+ 방학 추가</button>
+          </div>
+          {(data.vacations||[]).length === 0 ? (
+            <p style={{color:"#666",fontSize:12}}>없음</p>
+          ) : (
+            (data.vacations||[]).sort((a, b) => a.start.localeCompare(b.start)).map(v => (
+              <div key={v.id} className="fxr">
+                <div>
+                  <span className="badge bgrn" style={{marginRight:7}}>{v.name}</span>
+                  <span style={{fontSize:12,color:"#aaa"}}>{v.start} ~ {v.end}</span>
+                </div>
+                <button className="btn bd sm" onClick={async()=>await persist({...data, vacations:(data.vacations||[]).filter(x=>x.id!==v.id)})}>삭제</button>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="card">
+          <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>직원별 고정 스케줄</span>
+            <button className="btn bp sm" onClick={()=>setModal({type:"addFixed"})}>+ 고정 추가</button>
+          </div>
+          {Object.keys(byStaff).length === 0 ? (
+            <p style={{color:"#666",fontSize:12}}>없음</p>
+          ) : (
+            Object.entries(byStaff).map(([sid, fxs]) => {
+              const st = gSt(parseInt(sid));
+              return (
+                <div key={sid} style={{marginBottom:10}}>
+                  <div style={{fontSize:12,fontWeight:700,marginBottom:5}}>
+                    <span className="dot" style={{background:st?.color||"#666"}} />{st?.name||"?"}
+                  </div>
+                  {fxs.map(f => (
+                    <div key={f.id} className="fxr">
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+                        <span className={"badge " + (f.type === "오프닝" ? "bylw" : "bgrn")}>{f.type}</span>
+                        {[...f.dows].sort().map(d => (
+                          <span key={d} className="badge bblu">{DN[d]}요일</span>
+                        ))}
+                      </div>
+                      <button className="btn bd sm" onClick={async()=>await persist({...data, fixed:(data.fixed||[]).filter(x=>x.id!==f.id)})}>삭제</button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })
+          )}
+        </div>
+        <div className="card" style={{border:"1px solid rgba(245,197,24,.3)"}}>
+          <div className="ct" style={{color:"#f5c518"}}>⚡ 자동 생성</div>
+          <div style={{fontSize:12,color:"#aaa",marginBottom:10}}>방학·공휴일·일요일 제외</div>
+          <button className="btn bp" style={{width:"100%"}} onClick={()=>setModal({type:"genFixed", ym:curYM()})}>⚡ 이번달 생성</button>
+        </div>
+      </div>
+    );
+  };
+
+  // ─── 직원 관리 ───
+  const renderStaffMgmt = () => (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:15,fontWeight:700}}>직원 관리</div>
+        <button className="btn bp sm" onClick={()=>setModal({type:"addStaff"})}>+ 추가</button>
+      </div>
+      <div className="card">
+        <table className="tbl">
+          <thead><tr><th>이름</th><th>연락처</th><th>시급</th><th>색상</th><th></th></tr></thead>
+          <tbody>
+            {(data.staff||[]).map(st => (
+              <tr key={st.id}>
+                <td><strong>{st.name}</strong></td>
+                <td style={{color:"#aaa"}}>{st.phone || "—"}</td>
+                <td className="mn">€{fmtE(st.wage)}/h</td>
+                <td><span style={{display:"inline-block",width:16,height:16,borderRadius:"50%",background:st.color}} /></td>
+                <td>
+                  <button className="btn bs sm" onClick={()=>setModal({type:"addStaff", edit:st})}>수정</button>
+                  <button className="btn bd sm" style={{marginLeft:3}} onClick={async()=>{
+                    if (!confirm("삭제?")) return;
+                    await persist({
+                      ...data,
+                      staff: (data.staff||[]).filter(s=>s.id!==st.id),
+                      fixed: (data.fixed||[]).filter(f=>f.staffId!==st.id)
+                    });
+                  }}>삭제</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="card" style={{marginTop:12,border:"1px solid rgba(245,197,24,.2)"}}>
+        <div className="ct" style={{color:"#f5c518"}}>🔐 관리자 PIN 변경</div>
+        <PinChange pin={pin} setPin={setPin} />
+      </div>
+    </div>
+  );
+
+  // ─── 직원 화면 ───
+  const renderStaffView = () => {
+    const hols = hessenHols(new Date(svDate).getFullYear());
+    const dow = new Date(svDate).getDay();
+    const holName = hols[svDate] || "";
+    const vacN = vacName(svDate);
+    const slots = getSlots(svDate);
+    const taken = (data.shifts||[]).filter(s => s.date===svDate && s.staffId===svSid).map(s => s.slotType);
+    const fixedTypes = (data.fixed||[]).filter(f => f.staffId===svSid && f.dows.includes(dow)).map(f => f.type);
+    const ym = curYM();
+    const myS = (data.shifts||[]).filter(s => s.staffId===svSid && s.date.startsWith(ym)).sort((a,b) => a.date.localeCompare(b.date));
+    const allS = (data.shifts||[]).filter(s => s.date.startsWith(ym)).sort((a,b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+
+    const doSave = async () => {
+      if (!svSid || !svSel) return;
+      const slot = slots.find(s => s.type === svSel);
+      if (!slot) return;
+      if ((data.shifts||[]).find(s => s.date===svDate && s.staffId===svSid && s.slotType===svSel)) {
+        showToast("이미 등록됨");
+        return;
+      }
+      await persist({...data, shifts: [...(data.shifts||[]), {
+        id: nid(data.shifts||[]),
+        staffId: svSid, date: svDate,
+        start: slot.start, end: slot.end,
+        slotType: slot.type, hours: slot.hours,
+        memo: "", source: "share"
+      }]});
+      setSvSel(null);
+      showToast("✅ 등록 완료!");
+    };
+
+    const doCancel = async (id) => {
+      if (!confirm("취소?")) return;
+      await persist({...data, shifts: (data.shifts||[]).filter(s => s.id !== id)});
+      showToast("취소 완료");
+    };
+
+    return (
+      <div>
+        <div className="tb">
+          <div className="logo">🦛 하마필름<small>스케줄</small></div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span
+              onClick={async()=>{
+                let info = "📊 저장소 상태\n\n";
+                info += "모드: " + storageMode + "\n";
+                info += "에러: " + (lastError || "(없음)") + "\n\n";
+                info += "🔍 직접 테스트 중...\n";
+                try {
+                  const res = await fetch(GAS_URL, { method: "GET" });
+                  info += "응답코드: " + res.status + "\n";
+                  const txt = await res.text();
+                  info += "응답내용 (처음 200자):\n" + txt.slice(0, 200);
+                } catch(e) {
+                  info += "❌ 에러: " + (e.message || String(e));
+                }
+                alert(info);
+              }}
+              style={{
+                fontSize:10,
+                padding:"3px 7px",
+                borderRadius:10,
+                background: storageMode==="shared" ? "rgba(46,213,115,.15)" : storageMode==="local" ? "rgba(255,71,87,.15)" : "rgba(255,255,255,.08)",
+                color: storageMode==="shared" ? "#2ed573" : storageMode==="local" ? "#ff4757" : "#aaa",
+                fontWeight:600,
+                cursor: "pointer"
+              }}>
+              {storageMode==="shared" ? "🟢 공유됨" : storageMode==="local" ? "🔴 로컬만" : "⚪ 연결중"}
+            </span>
+            <button className="btn bs sm" onClick={()=>setModal({type:"pin"})}>🔐 관리자</button>
+          </div>
+        </div>
+        <div className="pg">
+          {!svSid ? (
+            <div>
+              <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>안녕하세요 👋</div>
+              <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>이름을 선택하세요.</div>
+              <div className="spc">
+                {(data.staff||[]).map(s => (
+                  <div key={s.id} className="sc" onClick={()=>{setSvSid(s.id); setSvDate(todayStr()); setSvSel(null);}}>
+                    <div className="sav" style={{background:s.color}}>{s.name.slice(0, 1)}</div>
+                    <div className="snm">{s.name}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                <button className="btn bs sm" onClick={()=>{setSvSid(null); setSvSel(null);}}>← 뒤로</button>
+                <div style={{fontSize:14,fontWeight:700}}>{gSt(svSid)?.name} 님</div>
+              </div>
+              <div className="card">
+                <div style={{fontSize:12,fontWeight:700,marginBottom:8}}>📅 날짜 선택</div>
+                <input type="date" value={svDate} onChange={e=>{setSvDate(e.target.value); setSvSel(null);}} style={{maxWidth:200,marginBottom:12}} />
+                {holName ? (
+                  <div className="notice n-red">🎌 공휴일: {holName}</div>
+                ) : null}
+                {vacN && !holName ? (
+                  <div className="notice n-grn">🏖 {vacN} 기간</div>
+                ) : null}
+                {dow === 0 && !holName ? (
+                  <div className="notice n-red">🚫 일요일 휴무</div>
+                ) : null}
+                <div style={{fontSize:12,fontWeight:700,marginBottom:7}}>⏰ 근무 타입</div>
+                {slots.length === 0 ? (
+                  <div style={{color:"#666",fontSize:12}}>근무 없음</div>
+                ) : (
+                  slots.map(sl => {
+                    const isTaken = taken.includes(sl.type);
+                    const isFixed = fixedTypes.includes(sl.type);
+                    let cls = "slb";
+                    if (isTaken) cls += " taken";
+                    else if (isFixed) cls += " fxd";
+                    if (svSel === sl.type) cls += " sel";
+                    return (
+                      <button key={sl.type} className={cls} onClick={()=>{ if (!isTaken) setSvSel(sl.type); }}>
+                        <div className="sln">
+                          {sl.type === "오프닝" ? "🌅" : "🌆"} {sl.type}
+                          {isTaken ? <span style={{fontSize:10,color:"#2ed573",marginLeft:6}}>✓ 등록됨</span> : null}
+                          {isFixed && !isTaken ? <span style={{fontSize:10,color:"#c47ff5",marginLeft:6}}>📌 고정</span> : null}
+                        </div>
+                        <div className="slt">{sl.start}~{sl.end} {sl.hours}h</div>
+                      </button>
+                    );
+                  })
+                )}
+                {svSel ? (
+                  <button className="btn bp" style={{width:"100%",marginTop:4}} onClick={doSave}>✅ 저장하기</button>
+                ) : null}
+              </div>
+              <div className="card">
+                <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📌 내 이번달 스케줄</div>
+                {myS.length === 0 ? (
+                  <p style={{color:"#666",fontSize:12}}>없음</p>
+                ) : (
+                  <table className="tbl">
+                    <thead><tr><th>날짜</th><th>요일</th><th>타입</th><th>시간</th><th></th></tr></thead>
+                    <tbody>
+                      {myS.map(s => (
+                        <tr key={s.id}>
+                          <td>{s.date}</td>
+                          <td>{dowKo(s.date)}</td>
+                          <td><span className={"badge " + (s.slotType === "오프닝" ? "bylw" : "bgrn")}>{s.slotType}</span></td>
+                          <td className="mn" style={{fontSize:11}}>{s.start}~{s.end}</td>
+                          <td><button className="btn bd sm" onClick={()=>doCancel(s.id)}>취소</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="card">
+            <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📋 이번달 전체 스케줄</div>
+            {allS.length === 0 ? (
+              <p style={{color:"#666",fontSize:12}}>없음</p>
+            ) : (
+              <table className="tbl">
+                <thead><tr><th>날짜</th><th>요일</th><th>직원</th><th>타입</th><th>시간</th></tr></thead>
+                <tbody>
+                  {allS.map(s => {
+                    const st = gSt(s.staffId);
+                    return (
+                      <tr key={s.id}>
+                        <td>{s.date}</td>
+                        <td>{dowKo(s.date)}</td>
+                        <td><span className="dot" style={{background:st?.color||"#666"}} />{st?.name||"?"}</td>
+                        <td><span className={"badge " + (s.slotType === "오프닝" ? "bylw" : "bgrn")}>{s.slotType}</span></td>
+                        <td className="mn" style={{fontSize:11}}>{s.start}~{s.end}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ─── 모달 ───
+  const renderModal = () => {
+    if (!modal) return null;
+
+    if (modal.type === "pin") {
+      return (
+        <div className="ov" onClick={e => {
+          if (e.target === e.currentTarget) {
+            closeModal();
+            setPinBuf("");
+            setPinErr("");
+          }
+        }}>
+          <div className="pb">
+            <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:"#f5c518",marginBottom:4}}>🦛 하마필름</div>
+            <div style={{fontSize:12,color:"#aaa",marginBottom:18}}>관리자 PIN</div>
+            <div className="pds">
+              {[0,1,2,3].map(i => (
+                <div key={i} className={"pde" + (i < pinBuf.length ? " f" : "")} />
+              ))}
+            </div>
+            {pinErr ? <div style={{color:"#ff4757",fontSize:12,marginBottom:8}}>{pinErr}</div> : null}
+            <div className="ppd">
+              {[1,2,3,4,5,6,7,8,9].map(d => (
+                <button key={d} className="pb2" onClick={()=>doPinInput(String(d))}>{d}</button>
+              ))}
+              <button className="pb2" onClick={()=>doPinInput("0")} style={{gridColumn:2}}>0</button>
+              <button className="pb2" style={{fontSize:14,color:"#aaa"}} onClick={()=>setPinBuf(b => b.slice(0, -1))}>⌫</button>
+            </div>
+            <button style={{background:"none",border:"none",color:"#666",fontSize:12,cursor:"pointer"}} onClick={()=>{closeModal(); setPinBuf(""); setPinErr("");}}>취소</button>
+          </div>
+        </div>
+      );
+    }
+
+    if (modal.type === "dayDetail") {
+      const ds = modal.date;
+      const hols = hessenHols(new Date(ds).getFullYear());
+      const shifts = (data.shifts||[]).filter(s => s.date === ds);
+      return (
+        <div className="ov" onClick={e => { if (e.target === e.currentTarget) closeModal(); }}>
+          <div className="modal">
+            <h3>📅 {ds} ({dowKo(ds)})</h3>
+            {hols[ds] ? <span className="badge bred" style={{marginBottom:8,display:"inline-block"}}>🎌 {hols[ds]}</span> : null}
+            {isVac(ds) ? <span className="badge bgrn" style={{marginBottom:8,display:"inline-block",marginLeft:4}}>🏖 {vacName(ds)}</span> : null}
+            {shifts.length === 0 ? (
+              <p style={{color:"#666",fontSize:13}}>스케줄 없음</p>
+            ) : (
+              shifts.map(sh => {
+                const st = gSt(sh.staffId);
+                const h = shiftHours(sh);
+                const tCls = sh.slotType === "오프닝" ? "bylw" : "bgrn";
+                return (
+                  <div key={sh.id} style={{background:"#242424",borderRadius:8,padding:10,marginBottom:7,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <span className="dot" style={{background:st?.color||"#666"}} />
+                      <strong>{st?.name||"?"}</strong>
+                      <span className={"badge " + tCls} style={{marginLeft:5}}>{sh.slotType}</span>
+                      <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{sh.start}~{sh.end} · {h}h · €{fmtE(h * (st?.wage || 0))}</div>
+                    </div>
+                    <button className="btn bd sm" onClick={async()=>{
+                      await persist({...data, shifts: (data.shifts||[]).filter(s => s.id !== sh.id)});
+                      closeModal();
+                      showToast("삭제");
+                    }}>삭제</button>
+                  </div>
+                );
+              })
+            )}
+            <div className="mf">
+              <button className="btn bs" onClick={closeModal}>닫기</button>
+              <button className="btn bp" onClick={()=>setModal({type:"addShift", date:ds})}>+ 추가</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (modal.type === "addShift") return <AddShiftModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} isVac={isVac} vacName={vacName} />;
+    if (modal.type === "addFixed") return <AddFixedModal data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "addVac") return <AddVacModal data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "addStaff") return <AddStaffModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "addSales") return <AddSalesModal data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "genFixed") return <GenFixedModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} isVac={isVac} />;
+    if (modal.type === "addPayroll") return <AddPayrollModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
+
+    return null;
+  };
+
+  const tabs = [
+    ["schedule", "📅 스케줄"],
+    ["fixed", "🔁 고정"],
+    ["staff", "👤 직원"],
+    ["salary", "💰 급여"],
+    ["sales", "📊 매출"],
+    ["stats", "📈 통계"]
+  ];
+
+  return (
+    <>
+      <style>{css}</style>
+      {mode === "staff" ? renderStaffView() : (
+        <div>
+          <div className="tb">
+            <div className="logo">🦛 하마필름<small>관리자</small></div>
+            <div className="nav">
+              {tabs.map(([t, lbl]) => (
+                <button key={t} className={"nt" + (adminTab === t ? " on" : "")} onClick={()=>setAdminTab(t)}>{lbl}</button>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+              <span style={{
+                fontSize:10,
+                padding:"3px 7px",
+                borderRadius:10,
+                background: storageMode==="shared" ? "rgba(46,213,115,.15)" : storageMode==="local" ? "rgba(255,71,87,.15)" : "rgba(255,255,255,.08)",
+                color: storageMode==="shared" ? "#2ed573" : storageMode==="local" ? "#ff4757" : "#aaa",
+                fontWeight:600
+              }}>
+                {storageMode==="shared" ? "🟢" : storageMode==="local" ? "🔴" : "⚪"}
+              </span>
+              <button className="btn bs sm" onClick={()=>setMode("staff")}>🔒</button>
+            </div>
+          </div>
+          <div className="pg">
+            {adminTab === "schedule" ? renderCal() : null}
+            {adminTab === "fixed" ? renderFixed() : null}
+            {adminTab === "staff" ? renderStaffMgmt() : null}
+            {adminTab === "salary" ? <SalaryTab data={data} persist={persist} setModal={setModal} gSt={gSt} /> : null}
+            {adminTab === "sales" ? <SalesTab data={data} persist={persist} setModal={setModal} /> : null}
+            {adminTab === "stats" ? <StatsTab data={data} /> : null}
+          </div>
+        </div>
+      )}
+      {renderModal()}
+      {toast ? (
+        <div style={{position:"fixed",bottom:18,right:18,background:"#1a1a1a",border:"1px solid #f5c518",borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:500,zIndex:200}}>{toast}</div>
+      ) : null}
+    </>
+  );
+}
