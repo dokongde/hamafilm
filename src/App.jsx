@@ -618,7 +618,7 @@ function AddSalesModal({ data, persist, close, toast }) {
     toast("매출 저장!");
   };
   const groups = [
-    {title:"📸 사진", k1:"pc", l1:"현금", k2:"pk", l2:"카드"},
+    {title:"💳 SUMUP", k1:"pc", l1:"현금", k2:"pk", l2:"카드"},
     {title:"🖨 기계", k1:"mc", l1:"현금", k2:"mk", l2:"카드"},
     {title:"💍 악세서리", k1:"ac", l1:"현금", k2:"ak", l2:"카드"},
     {title:"💅 네일", k1:"nc", l1:"현금", k2:"nk", l2:"카드"},
@@ -1401,16 +1401,44 @@ function SalesTab({ data, persist, setModal }) {
         {fd ? <button className="btn bs sm" onClick={()=>setFd("")}>전체</button> : null}
       </div>
       <div className="g4" style={{marginBottom:12}}>
-        <div className="chip"><div className="lb">📸 사진</div><div className="vl">{fmt(T.pc+T.pk+T.mc+T.mk)}</div></div>
-        <div className="chip"><div className="lb">💍+💅+💎</div><div className="vl">{fmt(T.ac+T.ak+T.nc+T.nk+T.jc+T.jk)}</div></div>
-        <div className="chip"><div className="lb">🔒 슈킹</div><div className="vl" style={{color:"#888"}}>{fmt(T.sk)}</div></div>
-        <div className="chip" style={{border:"1px solid #f5c518"}}><div className="lb">전체</div><div className="vl">{fmt(tot)}</div></div>
+        <div className="chip">
+          <div className="lb">📷 사진관 매출</div>
+          <div className="vl">{fmt(T.pc+T.pk+T.mc+T.mk+T.sk)}</div>
+          <div className="sb">SUMUP+기계+슈킹</div>
+        </div>
+        <div className="chip">
+          <div className="lb">💍 악세서리</div>
+          <div className="vl">{fmt(T.ac+T.ak)}</div>
+        </div>
+        <div className="chip">
+          <div className="lb">💅 네일</div>
+          <div className="vl">{fmt(T.nc+T.nk)}</div>
+        </div>
+        <div className="chip">
+          <div className="lb">💎 조이스보물</div>
+          <div className="vl">{fmt(T.jc+T.jk)}</div>
+        </div>
+      </div>
+      <div className="g3" style={{marginBottom:12}}>
+        <div className="chip" style={{border:"1px solid #4dabf7"}}>
+          <div className="lb">📋 부가세 대상 (슈킹 제외)</div>
+          <div className="vl" style={{color:"#1971c2"}}>{fmt(T.pc+T.pk+T.mc+T.mk+T.ac+T.ak+T.nc+T.nk+T.jc+T.jk)}</div>
+          <div className="sb">부가세: €{fmtE((T.pc+T.pk+T.mc+T.mk+T.ac+T.ak+T.nc+T.nk+T.jc+T.jk)*0.19)}</div>
+        </div>
+        <div className="chip">
+          <div className="lb">🔒 슈킹</div>
+          <div className="vl" style={{color:"#888"}}>{fmt(T.sk)}</div>
+        </div>
+        <div className="chip" style={{border:"1px solid #f5c518"}}>
+          <div className="lb">전체 (슈킹 포함)</div>
+          <div className="vl">{fmt(tot)}</div>
+        </div>
       </div>
       <div className="card" style={{overflowX:"auto"}}>
         <table className="tbl">
           <thead>
             <tr>
-              <th>날짜</th><th>📸현금</th><th>📸카드</th><th>🖨현금</th><th>🖨카드</th>
+              <th>날짜</th><th>💳현금</th><th>💳카드</th><th>🖨현금</th><th>🖨카드</th>
               <th>💍현금</th><th>💍카드</th><th>💅현금</th><th>💅카드</th>
               <th>💎현금</th><th>💎카드</th><th>🔒슈킹</th><th>합계</th><th></th>
             </tr>
@@ -1802,20 +1830,23 @@ function StatsTab({ data, setModal }) {
           </div>
         </>
       ) : view === "details" ? (
-        // ─── 매출 상세 (기존) ───
+        // ─── 매출 상세 ───
         (() => {
-          const photo = sv("pc")+sv("pk")+sv("mc")+sv("mk");
+          const sumup = sv("pc")+sv("pk");
+          const machine = sv("mc")+sv("mk");
           const acc = sv("ac")+sv("ak");
           const nail = sv("nc")+sv("nk");
           const joys = sv("jc")+sv("jk");
           const sk = sv("sk");
-          const rep = photo+acc+nail+joys;
-          const all = rep+sk;
+          const photoStudio = sumup + machine + sk; // 진짜 사진관 매출
+          const vatable = sumup + machine + acc + nail + joys; // 부가세 대상 (슈킹 제외)
+          const all = vatable + sk;
+          const vat = vatable * 0.19;
           const cash = sv("pc")+sv("mc")+sv("ac")+sv("nc")+sv("jc")+sk;
           const card = sv("pk")+sv("mk")+sv("ak")+sv("nk")+sv("jk");
           const cats = [
-            {n:"📸 사진 현금", v:sv("pc"), c:"#f5c518"},
-            {n:"📸 사진 카드", v:sv("pk"), c:"#f5c518"},
+            {n:"💳 SUMUP 현금", v:sv("pc"), c:"#4dabf7"},
+            {n:"💳 SUMUP 카드", v:sv("pk"), c:"#4dabf7"},
             {n:"🖨 기계 현금", v:sv("mc"), c:"#ffd700"},
             {n:"🖨 기계 카드", v:sv("mk"), c:"#ffd700"},
             {n:"💍 악세서리 현금", v:sv("ac"), c:"#ff6b35"},
@@ -1824,7 +1855,7 @@ function StatsTab({ data, setModal }) {
             {n:"💅 네일 카드", v:sv("nk"), c:"#ff4757"},
             {n:"💎 조이스 현금", v:sv("jc"), c:"#5352ed"},
             {n:"💎 조이스 카드", v:sv("jk"), c:"#5352ed"},
-            {n:"🔒 슈킹", v:sv("sk"), c:"#555"}
+            {n:"🔒 슈킹", v:sv("sk"), c:"#888"}
           ];
           const mx = Math.max(...cats.map(c => c.v), 1);
 
@@ -1836,29 +1867,49 @@ function StatsTab({ data, setModal }) {
                   <input type="month" value={stYM} onChange={e=>setStYM(e.target.value)} style={{width:180}} />
                 </div>
               </div>
-              <div className="g4" style={{marginBottom:10}}>
-                <div className="chip"><div className="lb">📸 사진</div><div className="vl">{fmt(photo)}</div></div>
-                <div className="chip"><div className="lb">💍 악세서리</div><div className="vl">{fmt(acc)}</div></div>
-                <div className="chip"><div className="lb">💅 네일</div><div className="vl">{fmt(nail)}</div></div>
-                <div className="chip"><div className="lb">💎 조이스보물</div><div className="vl">{fmt(joys)}</div></div>
+              {/* 진짜 사진관 매출 */}
+              <div className="card" style={{marginBottom:12, border:"1.5px solid #4dabf7"}}>
+                <div className="ct" style={{color:"#1971c2"}}>📷 사진관 매출 (SUMUP + 기계 + 슈킹)</div>
+                <div className="g3">
+                  <div className="chip"><div className="lb">💳 SUMUP</div><div className="vl">{fmt(sumup)}</div></div>
+                  <div className="chip"><div className="lb">🖨 기계</div><div className="vl">{fmt(machine)}</div></div>
+                  <div className="chip"><div className="lb">🔒 슈킹</div><div className="vl" style={{color:"#888"}}>{fmt(sk)}</div></div>
+                </div>
+                <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #e0e0e0",display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700}}>
+                  <span>사진관 매출 합계</span>
+                  <span className="mn" style={{color:"#1971c2"}}>€{fmtE(photoStudio)}</span>
+                </div>
               </div>
+              {/* 부가가치 상품 */}
+              <div className="card" style={{marginBottom:12}}>
+                <div className="ct">🛍️ 부가 상품 매출</div>
+                <div className="g3">
+                  <div className="chip"><div className="lb">💍 악세서리</div><div className="vl">{fmt(acc)}</div></div>
+                  <div className="chip"><div className="lb">💅 네일</div><div className="vl">{fmt(nail)}</div></div>
+                  <div className="chip"><div className="lb">💎 조이스보물</div><div className="vl">{fmt(joys)}</div></div>
+                </div>
+              </div>
+              {/* 결제수단 */}
               <div className="g3" style={{marginBottom:10}}>
                 <div className="chip"><div className="lb">💵 현금</div><div className="vl">{fmt(cash)}</div></div>
                 <div className="chip"><div className="lb">💳 카드</div><div className="vl">{fmt(card)}</div></div>
-                <div className="chip"><div className="lb">🔒 슈킹</div><div className="vl" style={{color:"#888"}}>{fmt(sk)}</div></div>
+                <div className="chip" style={{border:"1px solid #f5c518"}}><div className="lb">전체 (슈킹 포함)</div><div className="vl">{fmt(all)}</div><div className="sb">{monthSales.length}일</div></div>
               </div>
+              {/* 부가세 / 신고 */}
               <div className="g2" style={{marginBottom:12}}>
-                <div className="chip" style={{border:"1px solid #555"}}>
-                  <div className="lb">세금청 신고 (슈킹 제외)</div>
-                  <div className="vl" style={{color:"#1971c2"}}>{fmt(rep)}</div>
+                <div className="chip" style={{border:"1px solid #4dabf7"}}>
+                  <div className="lb">📋 부가세 대상 (슈킹 제외)</div>
+                  <div className="vl" style={{color:"#1971c2"}}>{fmt(vatable)}</div>
+                  <div className="sb">SUMUP+기계+악세+네일+조이스</div>
                 </div>
-                <div className="chip" style={{border:"1px solid #f5c518"}}>
-                  <div className="lb">내부 전체 (슈킹 포함)</div>
-                  <div className="vl">{fmt(all)}</div>
-                  <div className="sb">{monthSales.length}일</div>
+                <div className="chip" style={{border:"1px solid #e63946"}}>
+                  <div className="lb">💸 부가세 (19%)</div>
+                  <div className="vl" style={{color:"#e63946"}}>{fmt(vat)}</div>
+                  <div className="sb">납부할 세금</div>
                 </div>
               </div>
               <div className="card">
+                <div className="ct">📊 카테고리별 상세</div>
                 {cats.map(c => (
                   <div key={c.n} style={{marginBottom:10}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
