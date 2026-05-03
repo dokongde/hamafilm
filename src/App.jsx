@@ -851,6 +851,7 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
 // CSV 자동 매출 입력 모달
 function CsvImportModal({ data, persist, close, toast }) {
   const [parsed, setParsed] = useState(null); // {date: {pc,pk,...}}
+  const [affectedKeys, setAffectedKeys] = useState([]); // 이번 업로드에서 영향받는 카테고리 키들
   const [unknown, setUnknown] = useState([]);
   const [parsing, setParsing] = useState(false);
   const [files, setFiles] = useState({ sumup: null, hama: null });
@@ -920,8 +921,15 @@ function CsvImportModal({ data, persist, close, toast }) {
       return dailyData[date];
     };
 
+    // 어떤 카테고리(키)들이 이번 업로드에 포함되는지 추적
+    // SUMUP만 올렸으면 mc/mk 건드리지 않고, HAMAFILM만 올렸으면 pc/pk/ac/ak/nc/nk/jc/jk 건드리지 않음
+    const affectedKeys = new Set();
+
     // SUMUP 처리
     if (files.sumup) {
+      // SUMUP은 사진/악세/네일/조이스 카테고리에 영향
+      ["pc","pk","ac","ak","nc","nk","jc","jk"].forEach(k => affectedKeys.add(k));
+
       const text = await files.sumup.text();
       const rows = parseCsv(text);
       if (rows.length > 0) {
@@ -935,14 +943,12 @@ function CsvImportModal({ data, persist, close, toast }) {
         for (let i = 1; i < rows.length; i++) {
           const r = rows[i];
           if (!r[iDate]) continue;
-          // 날짜 파싱 "01.04.2026, 12:35" → "2026-04-01"
           const dpart = r[iDate].split(",")[0].trim();
           const m = dpart.match(/(\d{2})\.(\d{2})\.(\d{4})/);
           if (!m) continue;
           const date = `${m[3]}-${m[2]}-${m[1]}`;
           let amt = parseAmt(r[iAmount]);
           // 환불(Rückerstattung)의 경우 CSV에 이미 음수(-)로 기록되어 있음 → 그대로 사용
-          // (음수 그대로 더하면 매출에서 차감됨)
           const cat = classifySumup(r[iDesc]);
           const isCash = (r[iMethod] || "") === "Bar";
           const day = ensure(date);
@@ -957,6 +963,9 @@ function CsvImportModal({ data, persist, close, toast }) {
 
     // HAMAFILM 처리
     if (files.hama) {
+      // HAMAFILM은 기계 카테고리에만 영향
+      ["mc","mk"].forEach(k => affectedKeys.add(k));
+
       const text = await files.hama.text();
       const rows = parseCsv(text);
       if (rows.length > 0) {
@@ -968,23 +977,25 @@ function CsvImportModal({ data, persist, close, toast }) {
         for (let i = 1; i < rows.length; i++) {
           const r = rows[i];
           if (!r[iDate]) continue;
-          const date = r[iDate].slice(0, 10); // "2026-04-01"
+          const date = r[iDate].slice(0, 10);
           const amt = parseAmt(r[iAmount]);
           const method = r[iMethod] || "";
           const day = ensure(date);
           if (method === "현금") day.mc += amt;
-          else day.mk += amt; // 카드 + 쿠폰 (쿠폰은 0원이라 영향 없음)
+          else day.mk += amt;
         }
       }
     }
 
-    // 0원이거나 빈 날짜 제거
+    // 빈 날짜 제거 (모든 영향받는 키가 0인 경우)
     Object.keys(dailyData).forEach(d => {
-      const sum = Object.values(dailyData[d]).reduce((a,b)=>a+b,0);
+      let sum = 0;
+      affectedKeys.forEach(k => { sum += dailyData[d][k] || 0; });
       if (sum === 0) delete dailyData[d];
     });
 
     setParsed(dailyData);
+    setAffectedKeys([...affectedKeys]);
     setUnknown(unknownList);
     setParsing(false);
   };
@@ -992,9 +1003,11 @@ function CsvImportModal({ data, persist, close, toast }) {
   const doImport = async (mode) => {
     // mode: "merge" (기존+신규) 또는 "overwrite" (덮어쓰기)
     if (!parsed) return;
+    const fileLabel = files.sumup && files.hama ? "SUMUP + HAMAFILM" :
+                       files.sumup ? "SUMUP" : "HAMAFILM";
     if (!confirm(mode === "overwrite"
-      ? "해당 날짜의 기존 매출을 모두 덮어쓸까요?"
-      : "기존 매출에 더할까요? (같은 날짜면 합산)")) return;
+      ? `${fileLabel} 카테고리만 덮어쓸까요?\n(다른 카테고리는 그대로 유지됩니다)`
+      : `${fileLabel} 데이터를 기존에 더할까요?`)) return;
 
     let newSales = [...(data.sales||[])];
     let added = 0, updated = 0;
@@ -1003,24 +1016,30 @@ function CsvImportModal({ data, persist, close, toast }) {
       const existing = newSales.find(s => s.date === date);
       if (existing) {
         if (mode === "overwrite") {
-          // 통째 교체 (sk/슈킹은 보존)
-          const sk = existing.sk || 0;
-          Object.assign(existing, vals);
-          existing.sk = sk;
+          // ⚠️ affectedKeys (이번 업로드에 포함된 카테고리)만 덮어씀
+          // 다른 카테고리(예: SUMUP만 올렸으면 mc/mk = 기계)는 그대로 유지
+          affectedKeys.forEach(k => {
+            existing[k] = vals[k] || 0;
+          });
           updated++;
         } else {
-          // 합산
-          ["pc","pk","mc","mk","ac","ak","nc","nk","jc","jk"].forEach(k => {
+          // 합산: affectedKeys만 더함
+          affectedKeys.forEach(k => {
             existing[k] = (existing[k]||0) + (vals[k]||0);
           });
           updated++;
         }
       } else {
-        newSales.push({
+        // 새 날짜 — affectedKeys만 채워서 추가 (나머지는 0)
+        const newRow = {
           id: nid(newSales),
           date,
-          ...vals
+          pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,sk:0
+        };
+        affectedKeys.forEach(k => {
+          newRow[k] = vals[k] || 0;
         });
+        newSales.push(newRow);
         added++;
       }
     });
@@ -1093,6 +1112,20 @@ function CsvImportModal({ data, persist, close, toast }) {
           <>
             <div style={{fontSize:12,color:"#666",marginBottom:10}}>
               📊 분석 완료 — 아래 내용 확인 후 입력하세요
+            </div>
+
+            {/* 영향받는 카테고리 안내 */}
+            <div style={{background:"rgba(46,213,115,.1)",border:"1px solid rgba(46,213,115,.3)",borderRadius:8,padding:"10px 12px",marginBottom:10,fontSize:11}}>
+              <div style={{color:"#20a060",fontWeight:700,marginBottom:4}}>
+                ✅ 이번 업로드는 다음 카테고리만 영향:
+              </div>
+              <div style={{color:"#666"}}>
+                {files.sumup ? "💳 SUMUP, 💍 악세서리, 💅 네일, 💎 조이스보물 " : ""}
+                {files.hama ? "🖨 기계 " : ""}
+              </div>
+              <div style={{color:"#888",fontSize:10,marginTop:3}}>
+                💡 다른 카테고리(슈킹{!files.hama ? ", 기계" : ""}{!files.sumup ? ", SUMUP/악세/네일/조이스" : ""})는 그대로 유지됩니다
+              </div>
             </div>
 
             {/* 합계 미리보기 */}
