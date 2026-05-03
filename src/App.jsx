@@ -89,7 +89,9 @@ const DEFAULT_DATA = {
   vacations: [],
   sales: [],
   payrollRecords: [],
-  payments: []
+  payments: [],
+  expenses: [],         // 지출 기록 [{id, date, category, amount, memo, recurring}]
+  historicalData: []    // 과거 월별 직접 입력 데이터 [{ym, sales, expenses, labor, memo}]
 };
 
 // ═══ Google Apps Script 백엔드 ═══
@@ -823,6 +825,178 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
   );
 }
 
+// 지출 입력/수정 모달
+function ExpenseModal({ modal, data, persist, close, toast }) {
+  const ed = modal.edit;
+  const [date, setDate] = useState(ed?.date || todayStr());
+  const [category, setCategory] = useState(ed?.category || "임대료");
+  const [amount, setAmount] = useState(ed?.amount || "");
+  const [memo, setMemo] = useState(ed?.memo || "");
+  const [recurring, setRecurring] = useState(ed?.recurring || false);
+
+  const categories = [
+    {v:"임대료", e:"🏢"},
+    {v:"공과금", e:"💡"},
+    {v:"재료비", e:"📦"},
+    {v:"광고비", e:"📣"},
+    {v:"수수료", e:"💳"},
+    {v:"통신비", e:"📞"},
+    {v:"보험", e:"🛡️"},
+    {v:"세금", e:"📋"},
+    {v:"수리/유지보수", e:"🔧"},
+    {v:"기타", e:"📌"}
+  ];
+
+  const save = async () => {
+    if (!amount || parseFloat(amount) <= 0) { toast("금액 입력"); return; }
+    const entry = {
+      id: ed?.id || nid(data.expenses||[]),
+      date, category,
+      amount: parseFloat(amount),
+      memo,
+      recurring,
+      savedAt: new Date().toISOString()
+    };
+    let nd;
+    if (ed) {
+      nd = {...data, expenses: (data.expenses||[]).map(x => x.id===ed.id ? entry : x)};
+    } else {
+      nd = {...data, expenses: [...(data.expenses||[]), entry]};
+    }
+    await persist(nd);
+    close();
+    toast(ed ? "수정됨" : "지출 저장!");
+  };
+
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>{ed ? "지출 수정" : "지출 추가"}</h3>
+        <div className="fr fc2">
+          <div>
+            <label>날짜</label>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} />
+          </div>
+          <div>
+            <label>카테고리</label>
+            <select value={category} onChange={e=>setCategory(e.target.value)}>
+              {categories.map(c => <option key={c.v} value={c.v}>{c.e} {c.v}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>금액 (€)</label>
+            <input type="number" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" />
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>메모</label>
+            <input value={memo} onChange={e=>setMemo(e.target.value)} placeholder="선택사항" />
+          </div>
+        </div>
+        <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"#666",cursor:"pointer",marginTop:4}}>
+          <input type="checkbox" checked={recurring} onChange={e=>setRecurring(e.target.checked)} style={{width:"auto"}} />
+          매월 정기 지출
+        </label>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 과거 데이터 입력 모달 (2024-08 ~ 2025-03)
+function HistoricalModal({ modal, data, persist, close, toast }) {
+  const ed = modal.edit;
+  const [ym, setYm] = useState(ed?.ym || "2024-08");
+  const [sales, setSales] = useState(ed?.sales || "");
+  const [expenses, setExpenses] = useState(ed?.expenses || "");
+  const [labor, setLabor] = useState(ed?.labor || "");
+  const [memo, setMemo] = useState(ed?.memo || "");
+
+  const save = async () => {
+    if (!ym) { toast("월 입력"); return; }
+    const entry = {
+      ym,
+      sales: parseFloat(sales) || 0,
+      expenses: parseFloat(expenses) || 0,
+      labor: parseFloat(labor) || 0,
+      memo
+    };
+    let nd;
+    const existing = (data.historicalData||[]).find(h => h.ym === ym);
+    if (existing) {
+      nd = {...data, historicalData: (data.historicalData||[]).map(h => h.ym===ym ? entry : h)};
+    } else {
+      nd = {...data, historicalData: [...(data.historicalData||[]), entry]};
+    }
+    await persist(nd);
+    close();
+    toast(ym + " 저장!");
+  };
+
+  const remove = async () => {
+    if (!ed) return;
+    if (!confirm(ed.ym + " 데이터 삭제?")) return;
+    await persist({...data, historicalData: (data.historicalData||[]).filter(h => h.ym !== ed.ym)});
+    close();
+    toast("삭제됨");
+  };
+
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>{ed ? "과거 데이터 수정" : "과거 데이터 입력"}</h3>
+        <div style={{fontSize:11,color:"#888",marginBottom:10}}>
+          📌 시스템 도입 전(2024.08~2025.03)에 대한 월별 종합 데이터
+        </div>
+        <div className="fr">
+          <div>
+            <label>월 (YYYY-MM)</label>
+            <input type="month" value={ym} onChange={e=>setYm(e.target.value)} disabled={!!ed} />
+          </div>
+        </div>
+        <div className="fr fc2">
+          <div>
+            <label>총 매출 (€)</label>
+            <input type="number" step="0.01" value={sales} onChange={e=>setSales(e.target.value)} placeholder="0.00" />
+          </div>
+          <div>
+            <label>총 비용 (€)</label>
+            <input type="number" step="0.01" value={expenses} onChange={e=>setExpenses(e.target.value)} placeholder="0.00" />
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>인건비 (€) — 비용 중 인건비 부분</label>
+            <input type="number" step="0.01" value={labor} onChange={e=>setLabor(e.target.value)} placeholder="0.00" />
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>메모</label>
+            <input value={memo} onChange={e=>setMemo(e.target.value)} placeholder="선택사항" />
+          </div>
+        </div>
+        {sales && expenses ? (
+          <div style={{background:"rgba(77,171,247,.1)",border:"1px solid rgba(77,171,247,.3)",borderRadius:7,padding:"8px 11px",fontSize:12,marginTop:6}}>
+            순수익: <strong style={{color:"#1971c2"}}>€{fmtE(parseFloat(sales)-parseFloat(expenses))}</strong>
+          </div>
+        ) : null}
+        <div className="mf">
+          {ed ? <button className="btn bd" onClick={remove}>삭제</button> : null}
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 지급 관리 모달
 function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
   const existing = (data.payments||[]).find(p => p.staffId===modal.staffId && p.ym===modal.ym);
@@ -1206,76 +1380,525 @@ function SalesTab({ data, persist, setModal }) {
   );
 }
 
-function StatsTab({ data }) {
+// 월별 종합 데이터 계산 (매출/비용/인건비/순수익)
+function calcMonthData(data, ym) {
+  // 1. 과거 직접 입력 데이터 우선
+  const historical = (data.historicalData||[]).find(h => h.ym === ym);
+  if (historical) {
+    return {
+      ym,
+      sales: historical.sales || 0,
+      expenses: historical.expenses || 0,
+      labor: historical.labor || 0,
+      vat: 0, // 과거 데이터는 비용에 이미 포함된 것으로 간주
+      net: (historical.sales || 0) - (historical.expenses || 0),
+      isHistorical: true
+    };
+  }
+
+  // 2. 현재 시스템 데이터로 계산
+  // 매출 (슈킹 포함 = 내부 전체 매출)
+  const monthSales = (data.sales||[]).filter(s => s.date.startsWith(ym));
+  const sv = k => monthSales.reduce((t, r) => t + (r[k]||0), 0);
+  const skuking = sv("sk");
+  const reportable = sv("pc")+sv("pk")+sv("mc")+sv("mk")+sv("ac")+sv("ak")+sv("nc")+sv("nk")+sv("jc")+sv("jk"); // 슈킹 제외
+  const totalSales = reportable + skuking;
+
+  // 부가세: 슈킹 제외 신고 매출의 19%
+  const vat = reportable * 0.19;
+
+  // 인건비 (해당월 모든 직원 시급 × 시간)
+  let labor = 0;
+  const monthShifts = (data.shifts||[]).filter(s => s.date.startsWith(ym));
+  monthShifts.forEach(sh => {
+    const st = (data.staff||[]).find(s => s.id == sh.staffId);
+    if (!st) return;
+    const h = sh.hours || (getSlots(sh.date).find(x => x.type === sh.slotType) || {hours:0}).hours;
+    labor += h * st.wage;
+  });
+
+  // 일반 지출 (해당월)
+  const monthExpenses = (data.expenses||[])
+    .filter(x => x.date.startsWith(ym))
+    .reduce((t, x) => t + (x.amount || 0), 0);
+
+  const totalExpenses = monthExpenses + labor + vat;
+  const net = totalSales - totalExpenses;
+
+  return {
+    ym,
+    sales: totalSales,
+    reportableSales: reportable,
+    skuking,
+    expenses: totalExpenses,
+    expensesNoLabor: monthExpenses,
+    labor,
+    vat,
+    net,
+    isHistorical: false
+  };
+}
+
+// 월 리스트 생성 (시작월 ~ 종료월)
+function getMonthRange(startYM, endYM) {
+  const result = [];
+  let [y, m] = startYM.split("-").map(Number);
+  const [endY, endM] = endYM.split("-").map(Number);
+  while (y < endY || (y === endY && m <= endM)) {
+    result.push(`${y}-${String(m).padStart(2,"0")}`);
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return result;
+}
+
+function StatsTab({ data, setModal }) {
+  const [view, setView] = useState("dashboard"); // "dashboard" | "details" | "expenses"
   const [stYM, setStYM] = useState(curYM());
-  const sales = (data.sales||[]).filter(s => s.date.startsWith(stYM));
-  const sv = k => sales.reduce((t, r) => t + (r[k]||0), 0);
-  const photo = sv("pc")+sv("pk")+sv("mc")+sv("mk");
-  const acc = sv("ac")+sv("ak");
-  const nail = sv("nc")+sv("nk");
-  const joys = sv("jc")+sv("jk");
-  const sk = sv("sk");
-  const rep = photo+acc+nail+joys;
-  const all = rep+sk;
-  const cash = sv("pc")+sv("mc")+sv("ac")+sv("nc")+sv("jc")+sk;
-  const card = sv("pk")+sv("mk")+sv("ak")+sv("nk")+sv("jk");
-  const cats = [
-    {n:"📸 사진 현금", v:sv("pc"), c:"#f5c518"},
-    {n:"📸 사진 카드", v:sv("pk"), c:"#f5c518"},
-    {n:"🖨 기계 현금", v:sv("mc"), c:"#ffd700"},
-    {n:"🖨 기계 카드", v:sv("mk"), c:"#ffd700"},
-    {n:"💍 악세서리 현금", v:sv("ac"), c:"#ff6b35"},
-    {n:"💍 악세서리 카드", v:sv("ak"), c:"#ff6b35"},
-    {n:"💅 네일 현금", v:sv("nc"), c:"#ff4757"},
-    {n:"💅 네일 카드", v:sv("nk"), c:"#ff4757"},
-    {n:"💎 조이스 현금", v:sv("jc"), c:"#5352ed"},
-    {n:"💎 조이스 카드", v:sv("jk"), c:"#5352ed"},
-    {n:"🔒 슈킹", v:sv("sk"), c:"#555"}
-  ];
-  const mx = Math.max(...cats.map(c => c.v), 1);
+
+  // 종합 그래프용: 2024-08 ~ 현재월까지
+  const allMonths = getMonthRange("2024-08", curYM());
+  const monthlyData = allMonths.map(ym => calcMonthData(data, ym));
+  const maxSales = Math.max(...monthlyData.map(m => m.sales), 1);
+  const maxNet = Math.max(...monthlyData.map(m => Math.abs(m.net)), 1);
+
+  // 해당 월 상세
+  const cur = calcMonthData(data, stYM);
+  const prev = (() => {
+    const [y, m] = stYM.split("-").map(Number);
+    const pm = m === 1 ? `${y-1}-12` : `${y}-${String(m-1).padStart(2,"0")}`;
+    return calcMonthData(data, pm);
+  })();
+
+  const diff = (curr, prv) => {
+    if (!prv || prv === 0) return null;
+    const pct = ((curr - prv) / Math.abs(prv) * 100);
+    return pct;
+  };
+
+  const salesDiff = diff(cur.sales, prev.sales);
+  const netDiff = diff(cur.net, prev.net);
+  const expDiff = diff(cur.expenses, prev.expenses);
+
+  const renderArrow = (d, isExpense) => {
+    if (d === null || isNaN(d)) return null;
+    // 비용은 줄어드는 게 좋음 (반대)
+    const good = isExpense ? d < 0 : d > 0;
+    const color = Math.abs(d) < 0.1 ? "#888" : (good ? "#20a060" : "#e63946");
+    const arrow = d > 0.1 ? "▲" : d < -0.1 ? "▼" : "—";
+    return (
+      <span style={{color, fontSize:11, fontWeight:600, marginLeft:6}}>
+        {arrow} {Math.abs(d).toFixed(1)}%
+      </span>
+    );
+  };
+
+  // 매출 카테고리 (해당 월)
+  const monthSales = (data.sales||[]).filter(s => s.date.startsWith(stYM));
+  const sv = k => monthSales.reduce((t, r) => t + (r[k]||0), 0);
 
   return (
     <div>
-      <div className="fr" style={{marginBottom:12}}>
-        <div>
-          <label>조회 월</label>
-          <input type="month" value={stYM} onChange={e=>setStYM(e.target.value)} style={{width:180}} />
-        </div>
+      {/* 뷰 전환 탭 */}
+      <div style={{display:"flex",gap:5,marginBottom:14,borderBottom:"1px solid #e0e0e0",paddingBottom:0}}>
+        {[["dashboard","📊 대시보드"],["details","🔍 매출 상세"],["expenses","💸 지출 관리"]].map(([k,lbl])=>(
+          <button key={k}
+            onClick={()=>setView(k)}
+            style={{
+              background:"transparent",
+              border:"none",
+              padding:"8px 12px",
+              fontSize:12,
+              fontWeight: view===k ? 700 : 500,
+              color: view===k ? "#1971c2" : "#666",
+              borderBottom: view===k ? "2px solid #4dabf7" : "2px solid transparent",
+              cursor:"pointer",
+              fontFamily:"'Noto Sans KR', sans-serif"
+            }}>
+            {lbl}
+          </button>
+        ))}
       </div>
-      <div className="g4" style={{marginBottom:10}}>
-        <div className="chip"><div className="lb">📸 사진</div><div className="vl">{fmt(photo)}</div></div>
-        <div className="chip"><div className="lb">💍 악세서리</div><div className="vl">{fmt(acc)}</div></div>
-        <div className="chip"><div className="lb">💅 네일</div><div className="vl">{fmt(nail)}</div></div>
-        <div className="chip"><div className="lb">💎 조이스보물</div><div className="vl">{fmt(joys)}</div></div>
-      </div>
-      <div className="g3" style={{marginBottom:10}}>
-        <div className="chip"><div className="lb">💵 현금</div><div className="vl">{fmt(cash)}</div></div>
-        <div className="chip"><div className="lb">💳 카드</div><div className="vl">{fmt(card)}</div></div>
-        <div className="chip"><div className="lb">🔒 슈킹</div><div className="vl" style={{color:"#888"}}>{fmt(sk)}</div></div>
-      </div>
-      <div className="g2" style={{marginBottom:12}}>
-        <div className="chip" style={{border:"1px solid #555"}}>
-          <div className="lb">세금청 신고 (슈킹 제외)</div>
-          <div className="vl" style={{color:"#4ecdc4"}}>{fmt(rep)}</div>
-        </div>
-        <div className="chip" style={{border:"1px solid #f5c518"}}>
-          <div className="lb">내부 전체 (슈킹 포함)</div>
-          <div className="vl">{fmt(all)}</div>
-          <div className="sb">{sales.length}일</div>
-        </div>
-      </div>
-      <div className="card">
-        {cats.map(c => (
-          <div key={c.n} style={{marginBottom:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-              <span style={{fontSize:12}}>{c.n}</span>
-              <span className="mn" style={{fontSize:12,color:"#888"}}>{fmt(c.v)}</span>
-            </div>
-            <div style={{background:"#f5f5f7",borderRadius:4,height:6,overflow:"hidden"}}>
-              <div style={{height:"100%", width:((c.v/mx*100).toFixed(1)+"%"), background:c.c, borderRadius:4}} />
+
+      {view === "dashboard" ? (
+        <>
+          <div className="fr" style={{marginBottom:12}}>
+            <div>
+              <label>조회 월</label>
+              <input type="month" value={stYM} onChange={e=>setStYM(e.target.value)} style={{width:180}} />
             </div>
           </div>
-        ))}
+
+          {/* 핵심 KPI */}
+          <div className="g3" style={{marginBottom:12}}>
+            <div className="chip" style={{border:"1.5px solid #4dabf7"}}>
+              <div className="lb">📈 매출 {cur.isHistorical ? "(과거)" : ""}</div>
+              <div className="vl" style={{color:"#1971c2"}}>€{fmtE(cur.sales)}</div>
+              <div className="sb">{renderArrow(salesDiff, false)} 전월대비</div>
+            </div>
+            <div className="chip" style={{border:"1.5px solid #e63946"}}>
+              <div className="lb">📉 비용</div>
+              <div className="vl" style={{color:"#e63946"}}>€{fmtE(cur.expenses)}</div>
+              <div className="sb">{renderArrow(expDiff, true)} 전월대비</div>
+            </div>
+            <div className="chip" style={{border: cur.net >= 0 ? "1.5px solid #20a060" : "1.5px solid #e63946"}}>
+              <div className="lb">💰 순수익</div>
+              <div className="vl" style={{color: cur.net >= 0 ? "#20a060" : "#e63946"}}>
+                €{fmtE(cur.net)}
+              </div>
+              <div className="sb">{renderArrow(netDiff, false)} 전월대비</div>
+            </div>
+          </div>
+
+          {/* 비용 세부 */}
+          {!cur.isHistorical ? (
+            <div className="card" style={{marginBottom:12}}>
+              <div className="ct">💸 비용 세부 ({stYM})</div>
+              <table className="tbl">
+                <tbody>
+                  <tr>
+                    <td>👥 인건비</td>
+                    <td className="mn" style={{textAlign:"right"}}>€{fmtE(cur.labor)}</td>
+                    <td style={{textAlign:"right",width:60,color:"#888",fontSize:11}}>
+                      {cur.expenses>0 ? ((cur.labor/cur.expenses)*100).toFixed(0) : 0}%
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>📋 부가세 (19%)</td>
+                    <td className="mn" style={{textAlign:"right"}}>€{fmtE(cur.vat)}</td>
+                    <td style={{textAlign:"right",width:60,color:"#888",fontSize:11}}>
+                      {cur.expenses>0 ? ((cur.vat/cur.expenses)*100).toFixed(0) : 0}%
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>📦 일반 지출</td>
+                    <td className="mn" style={{textAlign:"right"}}>€{fmtE(cur.expensesNoLabor)}</td>
+                    <td style={{textAlign:"right",width:60,color:"#888",fontSize:11}}>
+                      {cur.expenses>0 ? ((cur.expensesNoLabor/cur.expenses)*100).toFixed(0) : 0}%
+                    </td>
+                  </tr>
+                  <tr style={{borderTop:"2px solid #1a1a1a"}}>
+                    <td style={{fontWeight:700}}>합계</td>
+                    <td className="mn" style={{textAlign:"right",fontWeight:700,color:"#e63946"}}>€{fmtE(cur.expenses)}</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="card" style={{marginBottom:12, background:"#fff8e1"}}>
+              <div style={{fontSize:12, color:"#b8860b"}}>
+                📌 이 달은 시스템 도입 전 직접 입력 데이터입니다.
+                {cur.labor > 0 ? <span> 인건비: <strong>€{fmtE(cur.labor)}</strong></span> : null}
+              </div>
+            </div>
+          )}
+
+          {/* 월별 그래프 */}
+          <div className="card" style={{marginBottom:12}}>
+            <div className="ct">📊 월별 매출 / 순수익 그래프 (2024.08~)</div>
+            <div style={{overflowX:"auto"}}>
+              <div style={{minWidth: Math.max(monthlyData.length * 50, 600), display:"flex", gap:6, alignItems:"flex-end", height:200, padding:"10px 0", borderBottom:"1px solid #e0e0e0"}}>
+                {monthlyData.map(m => {
+                  const salesH = (m.sales / maxSales) * 160;
+                  const netH = (Math.abs(m.net) / maxSales) * 160;
+                  const isCur = m.ym === stYM;
+                  const netColor = m.net >= 0 ? "#20a060" : "#e63946";
+                  return (
+                    <div key={m.ym}
+                      onClick={()=>setStYM(m.ym)}
+                      style={{
+                        flex:"1 0 44px",
+                        display:"flex",
+                        flexDirection:"column",
+                        alignItems:"center",
+                        cursor:"pointer",
+                        opacity: isCur ? 1 : 0.85,
+                        position:"relative"
+                      }}>
+                      <div style={{display:"flex",gap:2,alignItems:"flex-end",height:165}}>
+                        <div style={{
+                          width:14,
+                          height: salesH,
+                          background: isCur ? "#1971c2" : "#4dabf7",
+                          borderRadius: "3px 3px 0 0",
+                          minHeight: 1
+                        }} title={"매출 €"+fmtE(m.sales)} />
+                        <div style={{
+                          width:14,
+                          height: netH,
+                          background: netColor,
+                          opacity: isCur ? 1 : 0.6,
+                          borderRadius: "3px 3px 0 0",
+                          minHeight: 1
+                        }} title={"순수익 €"+fmtE(m.net)} />
+                      </div>
+                      <div style={{
+                        fontSize:9,
+                        color: isCur ? "#1971c2" : "#888",
+                        fontWeight: isCur ? 700 : 400,
+                        marginTop:4,
+                        textAlign:"center",
+                        whiteSpace:"nowrap"
+                      }}>
+                        {m.ym.slice(2).replace("-", "/")}
+                      </div>
+                      {m.isHistorical ? <div style={{fontSize:7, color:"#b8860b"}}>📌</div> : null}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",gap:14,marginTop:8,fontSize:11,color:"#666"}}>
+                <span><span style={{display:"inline-block",width:10,height:10,background:"#4dabf7",borderRadius:2,marginRight:4}}></span>매출</span>
+                <span><span style={{display:"inline-block",width:10,height:10,background:"#20a060",borderRadius:2,marginRight:4}}></span>순수익(흑자)</span>
+                <span><span style={{display:"inline-block",width:10,height:10,background:"#e63946",borderRadius:2,marginRight:4}}></span>순수익(적자)</span>
+                <span style={{color:"#b8860b"}}>📌 과거 데이터</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 인건비 추이 */}
+          <div className="card" style={{marginBottom:12}}>
+            <div className="ct">👥 월별 인건비 추이</div>
+            <div style={{overflowX:"auto"}}>
+              <div style={{minWidth: Math.max(monthlyData.length * 50, 600), display:"flex", gap:6, alignItems:"flex-end", height:130, padding:"8px 0", borderBottom:"1px solid #e0e0e0"}}>
+                {monthlyData.map(m => {
+                  const maxLabor = Math.max(...monthlyData.map(x=>x.labor), 1);
+                  const h = (m.labor / maxLabor) * 100;
+                  const isCur = m.ym === stYM;
+                  return (
+                    <div key={m.ym}
+                      onClick={()=>setStYM(m.ym)}
+                      style={{flex:"1 0 44px",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer"}}>
+                      <div style={{
+                        width:24,
+                        height: h,
+                        background: isCur ? "#7950f2" : "#a55eea",
+                        borderRadius: "3px 3px 0 0",
+                        minHeight: m.labor > 0 ? 1 : 0
+                      }} title={"인건비 €"+fmtE(m.labor)} />
+                      <div style={{fontSize:9, color: isCur ? "#7950f2" : "#888", fontWeight: isCur?700:400, marginTop:4}}>
+                        {m.ym.slice(2).replace("-", "/")}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* 월별 데이터 표 */}
+          <div className="card">
+            <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span>📋 월별 종합표</span>
+              <button className="btn bs sm" onClick={()=>setModal({type:"historical"})}>+ 과거 데이터 입력</button>
+            </div>
+            <div style={{overflowX:"auto"}}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>월</th>
+                    <th>매출</th>
+                    <th>비용</th>
+                    <th>인건비</th>
+                    <th>순수익</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...monthlyData].reverse().map(m => {
+                    const profit = m.sales - m.expenses;
+                    const margin = m.sales > 0 ? (profit/m.sales*100).toFixed(1) : "0.0";
+                    return (
+                      <tr key={m.ym} style={{background: m.ym===stYM ? "#e7f5ff" : "transparent"}}>
+                        <td style={{fontWeight:600}}>
+                          {m.ym}
+                          {m.isHistorical ? <span style={{color:"#b8860b",marginLeft:4,fontSize:10}}>📌</span> : null}
+                        </td>
+                        <td className="mn" style={{color:"#1971c2"}}>€{fmtE(m.sales)}</td>
+                        <td className="mn" style={{color:"#e63946"}}>€{fmtE(m.expenses)}</td>
+                        <td className="mn" style={{color:"#7950f2"}}>€{fmtE(m.labor)}</td>
+                        <td className="mn" style={{color: m.net >= 0 ? "#20a060" : "#e63946", fontWeight:700}}>
+                          €{fmtE(m.net)} <span style={{fontSize:10,color:"#888",fontWeight:400}}>({margin}%)</span>
+                        </td>
+                        <td>
+                          {m.isHistorical ? (
+                            <button className="btn bs sm" onClick={()=>setModal({type:"historical", edit: (data.historicalData||[]).find(h=>h.ym===m.ym)})}>수정</button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : view === "details" ? (
+        // ─── 매출 상세 (기존) ───
+        (() => {
+          const photo = sv("pc")+sv("pk")+sv("mc")+sv("mk");
+          const acc = sv("ac")+sv("ak");
+          const nail = sv("nc")+sv("nk");
+          const joys = sv("jc")+sv("jk");
+          const sk = sv("sk");
+          const rep = photo+acc+nail+joys;
+          const all = rep+sk;
+          const cash = sv("pc")+sv("mc")+sv("ac")+sv("nc")+sv("jc")+sk;
+          const card = sv("pk")+sv("mk")+sv("ak")+sv("nk")+sv("jk");
+          const cats = [
+            {n:"📸 사진 현금", v:sv("pc"), c:"#f5c518"},
+            {n:"📸 사진 카드", v:sv("pk"), c:"#f5c518"},
+            {n:"🖨 기계 현금", v:sv("mc"), c:"#ffd700"},
+            {n:"🖨 기계 카드", v:sv("mk"), c:"#ffd700"},
+            {n:"💍 악세서리 현금", v:sv("ac"), c:"#ff6b35"},
+            {n:"💍 악세서리 카드", v:sv("ak"), c:"#ff6b35"},
+            {n:"💅 네일 현금", v:sv("nc"), c:"#ff4757"},
+            {n:"💅 네일 카드", v:sv("nk"), c:"#ff4757"},
+            {n:"💎 조이스 현금", v:sv("jc"), c:"#5352ed"},
+            {n:"💎 조이스 카드", v:sv("jk"), c:"#5352ed"},
+            {n:"🔒 슈킹", v:sv("sk"), c:"#555"}
+          ];
+          const mx = Math.max(...cats.map(c => c.v), 1);
+
+          return (
+            <>
+              <div className="fr" style={{marginBottom:12}}>
+                <div>
+                  <label>조회 월</label>
+                  <input type="month" value={stYM} onChange={e=>setStYM(e.target.value)} style={{width:180}} />
+                </div>
+              </div>
+              <div className="g4" style={{marginBottom:10}}>
+                <div className="chip"><div className="lb">📸 사진</div><div className="vl">{fmt(photo)}</div></div>
+                <div className="chip"><div className="lb">💍 악세서리</div><div className="vl">{fmt(acc)}</div></div>
+                <div className="chip"><div className="lb">💅 네일</div><div className="vl">{fmt(nail)}</div></div>
+                <div className="chip"><div className="lb">💎 조이스보물</div><div className="vl">{fmt(joys)}</div></div>
+              </div>
+              <div className="g3" style={{marginBottom:10}}>
+                <div className="chip"><div className="lb">💵 현금</div><div className="vl">{fmt(cash)}</div></div>
+                <div className="chip"><div className="lb">💳 카드</div><div className="vl">{fmt(card)}</div></div>
+                <div className="chip"><div className="lb">🔒 슈킹</div><div className="vl" style={{color:"#888"}}>{fmt(sk)}</div></div>
+              </div>
+              <div className="g2" style={{marginBottom:12}}>
+                <div className="chip" style={{border:"1px solid #555"}}>
+                  <div className="lb">세금청 신고 (슈킹 제외)</div>
+                  <div className="vl" style={{color:"#1971c2"}}>{fmt(rep)}</div>
+                </div>
+                <div className="chip" style={{border:"1px solid #f5c518"}}>
+                  <div className="lb">내부 전체 (슈킹 포함)</div>
+                  <div className="vl">{fmt(all)}</div>
+                  <div className="sb">{monthSales.length}일</div>
+                </div>
+              </div>
+              <div className="card">
+                {cats.map(c => (
+                  <div key={c.n} style={{marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                      <span style={{fontSize:12}}>{c.n}</span>
+                      <span className="mn" style={{fontSize:12,color:"#888"}}>{fmt(c.v)}</span>
+                    </div>
+                    <div style={{background:"#f5f5f7",borderRadius:4,height:6,overflow:"hidden"}}>
+                      <div style={{height:"100%", width:((c.v/mx*100).toFixed(1)+"%"), background:c.c, borderRadius:4}} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          );
+        })()
+      ) : (
+        // ─── 지출 관리 ───
+        <ExpensesView data={data} stYM={stYM} setStYM={setStYM} setModal={setModal} />
+      )}
+    </div>
+  );
+}
+
+// 지출 관리 뷰
+function ExpensesView({ data, stYM, setStYM, setModal }) {
+  const monthExpenses = (data.expenses||[])
+    .filter(x => x.date.startsWith(stYM))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  // 카테고리별 합계
+  const byCategory = {};
+  monthExpenses.forEach(x => {
+    if (!byCategory[x.category]) byCategory[x.category] = 0;
+    byCategory[x.category] += x.amount || 0;
+  });
+  const total = Object.values(byCategory).reduce((a, b) => a + b, 0);
+
+  const persist = async (nd) => {
+    // ExpensesView에서 직접 persist 호출 못하므로 setModal 통해 우회는 어려움
+    // 대신 props로 받아야 함 — 잠시 부모에서 처리
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 200px"}}>
+          <label>조회 월</label>
+          <input type="month" value={stYM} onChange={e=>setStYM(e.target.value)} style={{maxWidth:180}} />
+        </div>
+        <button className="btn bp sm" onClick={()=>setModal({type:"expense"})}>+ 지출 추가</button>
+      </div>
+
+      {/* 카테고리별 요약 */}
+      <div className="card" style={{marginBottom:12}}>
+        <div className="ct">{stYM} 카테고리별 지출</div>
+        {Object.keys(byCategory).length === 0 ? (
+          <p style={{color:"#888",fontSize:12}}>이 달 지출 없음</p>
+        ) : (
+          <>
+            {Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).map(([cat, amt]) => {
+              const pct = total > 0 ? (amt/total*100) : 0;
+              return (
+                <div key={cat} style={{marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,fontSize:12}}>
+                    <span>{cat}</span>
+                    <span className="mn" style={{color:"#666"}}>€{fmtE(amt)} ({pct.toFixed(0)}%)</span>
+                  </div>
+                  <div style={{background:"#f5f5f7",borderRadius:4,height:6,overflow:"hidden"}}>
+                    <div style={{height:"100%", width: pct+"%", background:"#e63946", borderRadius:4}} />
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #e0e0e0",display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700}}>
+              <span>합계</span>
+              <span className="mn" style={{color:"#e63946"}}>€{fmtE(total)}</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 지출 목록 */}
+      <div className="card">
+        <div className="ct">{stYM} 지출 내역</div>
+        {monthExpenses.length === 0 ? (
+          <p style={{color:"#888",fontSize:12}}>없음</p>
+        ) : (
+          <table className="tbl">
+            <thead><tr><th>날짜</th><th>카테고리</th><th>금액</th><th>메모</th><th></th></tr></thead>
+            <tbody>
+              {monthExpenses.map(x => (
+                <tr key={x.id}>
+                  <td>{x.date}</td>
+                  <td>
+                    <span className="badge bgry">{x.category}</span>
+                    {x.recurring ? <span style={{marginLeft:4,fontSize:10,color:"#7950f2"}}>🔁</span> : null}
+                  </td>
+                  <td className="mn" style={{color:"#e63946"}}>€{fmtE(x.amount)}</td>
+                  <td style={{color:"#666",fontSize:11}}>{x.memo || "—"}</td>
+                  <td>
+                    <button className="btn bs sm" onClick={()=>setModal({type:"expense", edit:x})}>수정</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
@@ -2132,6 +2755,8 @@ export default function App() {
     if (modal.type === "genFixed") return <GenFixedModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} isVac={isVac} />;
     if (modal.type === "addPayroll") return <AddPayrollModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
     if (modal.type === "editPayment") return <EditPaymentModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
+    if (modal.type === "expense") return <ExpenseModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "historical") return <HistoricalModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
 
     return null;
   };
@@ -2177,7 +2802,7 @@ export default function App() {
             {adminTab === "staff" ? renderStaffMgmt() : null}
             {adminTab === "salary" ? <SalaryTab data={data} persist={persist} setModal={setModal} gSt={gSt} /> : null}
             {adminTab === "sales" ? <SalesTab data={data} persist={persist} setModal={setModal} /> : null}
-            {adminTab === "stats" ? <StatsTab data={data} /> : null}
+            {adminTab === "stats" ? <StatsTab data={data} setModal={setModal} /> : null}
           </div>
         </div>
       )}
