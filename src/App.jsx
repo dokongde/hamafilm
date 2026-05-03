@@ -88,7 +88,8 @@ const DEFAULT_DATA = {
   fixed: [],
   vacations: [],
   sales: [],
-  payrollRecords: []
+  payrollRecords: [],
+  payments: []
 };
 
 // ═══ Google Apps Script 백엔드 ═══
@@ -96,8 +97,10 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbw48A5z_PANeJWD-GRZbNc0
 
 let STORAGE_MODE = "loading";
 let LAST_ERROR = "";
-let SAVING = false;       // 저장 중인지
-let LAST_SAVE_AT = 0;     // 마지막 저장 시각 (ms)
+let SAVING = false;
+let LAST_SAVE_AT = 0;
+let LAST_USER_INTERACTION = 0;  // 마지막 사용자 동작 시각
+let LAST_SYNCED_JSON = "";       // 마지막으로 동기화한 데이터 (변경 감지용)
 
 async function loadData(){
   try {
@@ -820,6 +823,129 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
   );
 }
 
+// 지급 관리 모달
+function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
+  const existing = (data.payments||[]).find(p => p.staffId===modal.staffId && p.ym===modal.ym);
+  const st = gSt(modal.staffId);
+  const [paid, setPaid] = useState(existing?.paid !== undefined ? existing.paid : true);
+  const [paidDate, setPaidDate] = useState(existing?.paidDate || todayStr());
+  const [method, setMethod] = useState(existing?.method || "회사통장");
+  const [amount, setAmount] = useState(existing?.amount || modal.defaultAmount || 0);
+  const [memo, setMemo] = useState(existing?.memo || "");
+
+  const save = async () => {
+    const entry = {
+      id: existing?.id || nid(data.payments||[]),
+      staffId: modal.staffId,
+      ym: modal.ym,
+      paid: paid,
+      paidDate: paid ? paidDate : "",
+      method: paid ? method : "",
+      amount: parseFloat(amount) || 0,
+      memo: memo,
+      savedAt: new Date().toISOString()
+    };
+    let nd;
+    if (existing) {
+      nd = {...data, payments: (data.payments||[]).map(p => p.id===existing.id ? entry : p)};
+    } else {
+      nd = {...data, payments: [...(data.payments||[]), entry]};
+    }
+    await persist(nd);
+    close();
+    toast(paid ? "✅ 지급 처리됨" : "미지급으로 변경");
+  };
+
+  const remove = async () => {
+    if (!existing) return;
+    if (!confirm("지급 기록을 삭제할까요?")) return;
+    await persist({...data, payments: (data.payments||[]).filter(p => p.id !== existing.id)});
+    close();
+    toast("기록 삭제됨");
+  };
+
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>💰 {st?.name} · {modal.ym} 급여 지급</h3>
+        <div style={{background:"#f5f5f7",borderRadius:7,padding:"8px 11px",fontSize:12,color:"#666",marginBottom:12}}>
+          예상 급여: <strong style={{color:"#1971c2"}}>€{fmtE(modal.defaultAmount || 0)}</strong>
+        </div>
+
+        {/* 지급 / 미지급 토글 */}
+        <div style={{display:"flex",gap:8,marginBottom:14}}>
+          <button
+            className="btn"
+            onClick={()=>setPaid(true)}
+            style={{
+              flex:1,
+              background: paid ? "#2ed573" : "#f5f5f7",
+              color: paid ? "#fff" : "#888",
+              border: paid ? "none" : "1px solid #d0d0d0",
+              padding:"10px"
+            }}>
+            ✓ 지급함
+          </button>
+          <button
+            className="btn"
+            onClick={()=>setPaid(false)}
+            style={{
+              flex:1,
+              background: !paid ? "#e63946" : "#f5f5f7",
+              color: !paid ? "#fff" : "#888",
+              border: !paid ? "none" : "1px solid #d0d0d0",
+              padding:"10px"
+            }}>
+            ✗ 미지급
+          </button>
+        </div>
+
+        {/* 지급 정보 (지급함일 때만) */}
+        {paid ? (
+          <>
+            <div className="fr fc2">
+              <div>
+                <label>지급일</label>
+                <input type="date" value={paidDate} onChange={e=>setPaidDate(e.target.value)} />
+              </div>
+              <div>
+                <label>지급 방법</label>
+                <select value={method} onChange={e=>setMethod(e.target.value)}>
+                  <option value="회사통장">🏦 회사통장</option>
+                  <option value="현금">💵 현금</option>
+                  <option value="계좌이체">💳 계좌이체</option>
+                  <option value="기타">기타</option>
+                </select>
+              </div>
+            </div>
+            <div className="fr">
+              <div>
+                <label>실제 지급액 (€)</label>
+                <input type="number" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} />
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        <div className="fr">
+          <div>
+            <label>메모</label>
+            <input value={memo} onChange={e=>setMemo(e.target.value)} placeholder="선택사항" />
+          </div>
+        </div>
+
+        <div className="mf">
+          {existing ? (
+            <button className="btn bd" onClick={remove}>기록 삭제</button>
+          ) : null}
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════
 // 탭 컴포넌트들 (각자 useState 사용)
 // ═══════════════════════════════════════════════════
@@ -906,6 +1032,76 @@ function SalaryTab({ data, persist, setModal, gSt }) {
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="card" style={{border:"1px solid rgba(77,171,247,.3)", marginBottom:12}}>
+        <div className="ct" style={{color:"#1971c2",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span>💰 {salYM} 지급 관리</span>
+          <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>
+            {(() => {
+              const paidCnt = rows.filter(r => {
+                const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
+                return pay && pay.paid;
+              }).length;
+              return `지급완료 ${paidCnt}/${rows.length}`;
+            })()}
+          </span>
+        </div>
+        {rows.length === 0 ? (
+          <p style={{color:"#888",fontSize:12}}>이 달에 근무한 직원 없음</p>
+        ) : (
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>직원</th>
+                <th>지급액</th>
+                <th>방법</th>
+                <th>지급일</th>
+                <th>상태</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => {
+                const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
+                const paid = pay && pay.paid;
+                return (
+                  <tr key={r.st.id}>
+                    <td><span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong></td>
+                    <td className="mn" style={{color:paid?"#888":"#1971c2",fontWeight:600,textDecoration:paid?"line-through":"none"}}>
+                      €{pay ? fmtE(pay.amount || r.pay) : fmtE(r.pay)}
+                    </td>
+                    <td>
+                      {pay && pay.method ? (
+                        <span className={"badge " + (
+                          pay.method==="회사통장" ? "bblu" :
+                          pay.method==="현금" ? "bgrn" :
+                          pay.method==="계좌이체" ? "bprp" : "bgry"
+                        )}>{pay.method}</span>
+                      ) : <span style={{color:"#bbb",fontSize:11}}>—</span>}
+                    </td>
+                    <td className="mn" style={{fontSize:11,color:paid?"#666":"#bbb"}}>
+                      {pay && pay.paidDate ? pay.paidDate : "—"}
+                    </td>
+                    <td>
+                      {paid ? (
+                        <span className="badge bgrn">✓ 지급완료</span>
+                      ) : (
+                        <span className="badge bred">미지급</span>
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        className={"btn " + (paid ? "bs" : "bp") + " sm"}
+                        onClick={()=>setModal({type:"editPayment", staffId:r.st.id, ym:salYM, defaultAmount:r.pay})}>
+                        {paid ? "수정" : "지급체크"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
       <div className="card" style={{border:"1px solid rgba(78,205,196,.3)"}}>
         <div className="ct" style={{color:"#4ecdc4",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1130,30 +1326,54 @@ export default function App() {
     const interval = setInterval(async () => {
       // 1. 저장 중 또는 방금 저장한 경우 (10초 이내)
       if (SAVING || (Date.now() - LAST_SAVE_AT < 10000)) return;
-      // 2. 모달이 열려있을 때 (입력 중일 가능성 높음)
+      // 2. 모달이 열려있을 때
       if (modal !== null) return;
       // 3. input/textarea/select에 포커스 있을 때
       const active = document.activeElement;
       if (active && (
         active.tagName === "INPUT" ||
         active.tagName === "TEXTAREA" ||
-        active.tagName === "SELECT"
+        active.tagName === "SELECT" ||
+        active.tagName === "BUTTON"  // 버튼에 포커스 있을 때도 폴링 안 함
       )) return;
-      // 4. 페이지가 백그라운드일 때 (다른 탭) — 배터리 절약
+      // 4. 페이지가 백그라운드일 때
       if (document.hidden) return;
+      // 5. 마우스가 페이지에서 움직이는 중이면 잠시 대기 (사용자가 클릭 중일 가능성)
+      if (Date.now() - LAST_USER_INTERACTION < 3000) return;
 
       try {
         const d = await loadData();
-        if (d) setData(d);
+        // 데이터가 실제로 바뀌었을 때만 setData (불필요한 리렌더링 방지)
+        if (d) {
+          const newJson = JSON.stringify(d);
+          if (newJson !== LAST_SYNCED_JSON) {
+            LAST_SYNCED_JSON = newJson;
+            setData(d);
+          }
+        }
         setStorageMode(STORAGE_MODE);
         setLastError(LAST_ERROR);
       } catch(e) {}
-    }, 8000); // 5초 → 8초 (조금 더 여유)
+    }, 10000); // 8초 → 10초로 더 늘림
     return () => clearInterval(interval);
   }, [modal]);
 
+  // 사용자 상호작용 추적
+  useEffect(() => {
+    const update = () => { LAST_USER_INTERACTION = Date.now(); };
+    window.addEventListener("click", update);
+    window.addEventListener("touchstart", update);
+    window.addEventListener("mousemove", update);
+    return () => {
+      window.removeEventListener("click", update);
+      window.removeEventListener("touchstart", update);
+      window.removeEventListener("mousemove", update);
+    };
+  }, []);
+
   const persist = useCallback(async (nd) => {
     setData(nd);
+    LAST_SYNCED_JSON = JSON.stringify(nd); // 자기가 저장한 건 동기화 비교 기준에 반영
     const ok = await saveData(nd);
     if (!ok) {
       // 저장 실패 → 사용자에게 즉시 알림 (자동 사라짐 방지)
@@ -1911,6 +2131,7 @@ export default function App() {
     if (modal.type === "addSales") return <AddSalesModal data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "genFixed") return <GenFixedModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} isVac={isVac} />;
     if (modal.type === "addPayroll") return <AddPayrollModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
+    if (modal.type === "editPayment") return <EditPaymentModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
 
     return null;
   };
