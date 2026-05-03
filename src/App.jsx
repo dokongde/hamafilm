@@ -1997,11 +1997,39 @@ function StatsTab({ data, setModal }) {
   const [view, setView] = useState("dashboard"); // "dashboard" | "details" | "expenses"
   const [stYM, setStYM] = useState(curYM());
 
-  // 종합 그래프용: 2024-08 ~ 현재월까지
-  const allMonths = getMonthRange("2024-08", curYM());
-  const monthlyData = allMonths.map(ym => calcMonthData(data, ym));
-  const maxSales = Math.max(...monthlyData.map(m => m.sales), 1);
-  const maxNet = Math.max(...monthlyData.map(m => Math.abs(m.net)), 1);
+  // 그래프: 최근 12개월만 (간결하게)
+  const get12Months = () => {
+    const result = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      result.push(ym);
+    }
+    return result;
+  };
+
+  // 종합표: 최근 24개월 (2년치)
+  const get24Months = () => {
+    const result = [];
+    const now = new Date();
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+      result.push(ym);
+    }
+    return result;
+  };
+
+  // 차트용: 최근 12개월, 그래프에서 최신을 왼쪽으로 → reverse
+  const chartMonths = get12Months().reverse(); // 최신 → 옛날
+  const chartData = chartMonths.map(ym => calcMonthData(data, ym));
+  const maxSales = Math.max(...chartData.map(m => m.sales), 1);
+  const maxLabor = Math.max(...chartData.map(m => m.labor), 1);
+
+  // 종합표용: 최근 24개월
+  const tableMonths = get24Months();
+  const tableData = tableMonths.map(ym => calcMonthData(data, ym));
 
   // 해당 월 상세
   const cur = calcMonthData(data, stYM);
@@ -2011,27 +2039,63 @@ function StatsTab({ data, setModal }) {
     return calcMonthData(data, pm);
   })();
 
+  // 전년 동월
+  const prevYear = (() => {
+    const [y, m] = stYM.split("-").map(Number);
+    return calcMonthData(data, `${y-1}-${String(m).padStart(2,"0")}`);
+  })();
+
+  // 전년 동월 데이터가 존재하는지 (실제 매출/비용/historical 데이터가 있는지)
+  const hasPrevYear = prevYear.sales > 0 || prevYear.expenses > 0 || prevYear.isHistorical;
+
   const diff = (curr, prv) => {
-    if (!prv || prv === 0) return null;
+    if (prv === 0 || prv === undefined || prv === null) return null;
     const pct = ((curr - prv) / Math.abs(prv) * 100);
     return pct;
   };
+  const diffAmt = (curr, prv) => curr - prv;
 
   const salesDiff = diff(cur.sales, prev.sales);
   const netDiff = diff(cur.net, prev.net);
   const expDiff = diff(cur.expenses, prev.expenses);
+  const salesYDiff = hasPrevYear ? diff(cur.sales, prevYear.sales) : null;
+  const netYDiff = hasPrevYear ? diff(cur.net, prevYear.net) : null;
+  const expYDiff = hasPrevYear ? diff(cur.expenses, prevYear.expenses) : null;
 
-  const renderArrow = (d, isExpense) => {
-    if (d === null || isNaN(d)) return null;
-    // 비용은 줄어드는 게 좋음 (반대)
-    const good = isExpense ? d < 0 : d > 0;
-    const color = Math.abs(d) < 0.1 ? "#888" : (good ? "#20a060" : "#e63946");
-    const arrow = d > 0.1 ? "▲" : d < -0.1 ? "▼" : "—";
-    return (
-      <span style={{color, fontSize:11, fontWeight:600, marginLeft:6}}>
-        {arrow} {Math.abs(d).toFixed(1)}%
-      </span>
-    );
+  // 비교 박스 렌더링: 전월/전년 둘 다 보여줌
+  const renderCompare = (curVal, prvVal, prvYearVal, isExpense) => {
+    const items = [];
+    // 전월
+    if (prvVal !== undefined) {
+      const d = diffAmt(curVal, prvVal);
+      const pct = diff(curVal, prvVal);
+      const good = isExpense ? d < 0 : d > 0;
+      const color = Math.abs(d) < 1 ? "#888" : (good ? "#20a060" : "#e63946");
+      const arrow = d > 1 ? "▲" : d < -1 ? "▼" : "—";
+      items.push(
+        <div key="prev" style={{fontSize:10,marginTop:2,lineHeight:1.4}}>
+          <span style={{color:"#888"}}>전월: </span>
+          <span style={{color}}>{arrow} {d >= 0 ? "+" : ""}€{fmtE(d)}</span>
+          {pct !== null ? <span style={{color, marginLeft:4}}>({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)</span> : null}
+        </div>
+      );
+    }
+    // 전년
+    if (prvYearVal !== undefined && hasPrevYear) {
+      const d = diffAmt(curVal, prvYearVal);
+      const pct = diff(curVal, prvYearVal);
+      const good = isExpense ? d < 0 : d > 0;
+      const color = Math.abs(d) < 1 ? "#888" : (good ? "#20a060" : "#e63946");
+      const arrow = d > 1 ? "▲" : d < -1 ? "▼" : "—";
+      items.push(
+        <div key="prevYear" style={{fontSize:10,marginTop:2,lineHeight:1.4}}>
+          <span style={{color:"#888"}}>전년: </span>
+          <span style={{color}}>{arrow} {d >= 0 ? "+" : ""}€{fmtE(d)}</span>
+          {pct !== null ? <span style={{color, marginLeft:4}}>({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)</span> : null}
+        </div>
+      );
+    }
+    return items;
   };
 
   // 매출 카테고리 (해당 월)
@@ -2075,19 +2139,19 @@ function StatsTab({ data, setModal }) {
             <div className="chip" style={{border:"1.5px solid #4dabf7"}}>
               <div className="lb">📈 매출 {cur.isHistorical ? "(과거)" : ""}</div>
               <div className="vl" style={{color:"#1971c2"}}>€{fmtE(cur.sales)}</div>
-              <div className="sb">{renderArrow(salesDiff, false)} 전월대비</div>
+              <div>{renderCompare(cur.sales, prev.sales, prevYear.sales, false)}</div>
             </div>
             <div className="chip" style={{border:"1.5px solid #e63946"}}>
               <div className="lb">📉 비용</div>
               <div className="vl" style={{color:"#e63946"}}>€{fmtE(cur.expenses)}</div>
-              <div className="sb">{renderArrow(expDiff, true)} 전월대비</div>
+              <div>{renderCompare(cur.expenses, prev.expenses, prevYear.expenses, true)}</div>
             </div>
             <div className="chip" style={{border: cur.net >= 0 ? "1.5px solid #20a060" : "1.5px solid #e63946"}}>
               <div className="lb">💰 순수익</div>
               <div className="vl" style={{color: cur.net >= 0 ? "#20a060" : "#e63946"}}>
                 €{fmtE(cur.net)}
               </div>
-              <div className="sb">{renderArrow(netDiff, false)} 전월대비</div>
+              <div>{renderCompare(cur.net, prev.net, prevYear.net, false)}</div>
             </div>
           </div>
 
@@ -2135,12 +2199,12 @@ function StatsTab({ data, setModal }) {
             </div>
           )}
 
-          {/* 월별 그래프 */}
+          {/* 월별 그래프 — 최근 12개월, 최신이 왼쪽 */}
           <div className="card" style={{marginBottom:12}}>
-            <div className="ct">📊 월별 매출 / 순수익 그래프 (2024.08~)</div>
+            <div className="ct">📊 월별 매출 / 순수익 (최근 12개월)</div>
             <div style={{overflowX:"auto"}}>
-              <div style={{minWidth: Math.max(monthlyData.length * 50, 600), display:"flex", gap:6, alignItems:"flex-end", height:200, padding:"10px 0", borderBottom:"1px solid #e0e0e0"}}>
-                {monthlyData.map(m => {
+              <div style={{minWidth: 580, display:"flex", gap:6, alignItems:"flex-end", height:200, padding:"10px 0", borderBottom:"1px solid #e0e0e0"}}>
+                {chartData.map(m => {
                   const salesH = (m.sales / maxSales) * 160;
                   const netH = (Math.abs(m.net) / maxSales) * 160;
                   const isCur = m.ym === stYM;
@@ -2149,7 +2213,7 @@ function StatsTab({ data, setModal }) {
                     <div key={m.ym}
                       onClick={()=>setStYM(m.ym)}
                       style={{
-                        flex:"1 0 44px",
+                        flex:"1 0 42px",
                         display:"flex",
                         flexDirection:"column",
                         alignItems:"center",
@@ -2189,28 +2253,27 @@ function StatsTab({ data, setModal }) {
                   );
                 })}
               </div>
-              <div style={{display:"flex",gap:14,marginTop:8,fontSize:11,color:"#666"}}>
+              <div style={{display:"flex",gap:14,marginTop:8,fontSize:11,color:"#666",flexWrap:"wrap"}}>
                 <span><span style={{display:"inline-block",width:10,height:10,background:"#4dabf7",borderRadius:2,marginRight:4}}></span>매출</span>
                 <span><span style={{display:"inline-block",width:10,height:10,background:"#20a060",borderRadius:2,marginRight:4}}></span>순수익(흑자)</span>
                 <span><span style={{display:"inline-block",width:10,height:10,background:"#e63946",borderRadius:2,marginRight:4}}></span>순수익(적자)</span>
-                <span style={{color:"#b8860b"}}>📌 과거 데이터</span>
+                <span style={{color:"#888"}}>← 최신</span>
               </div>
             </div>
           </div>
 
-          {/* 인건비 추이 */}
+          {/* 인건비 추이 — 최근 12개월, 최신이 왼쪽 */}
           <div className="card" style={{marginBottom:12}}>
-            <div className="ct">👥 월별 인건비 추이</div>
+            <div className="ct">👥 월별 인건비 추이 (최근 12개월)</div>
             <div style={{overflowX:"auto"}}>
-              <div style={{minWidth: Math.max(monthlyData.length * 50, 600), display:"flex", gap:6, alignItems:"flex-end", height:130, padding:"8px 0", borderBottom:"1px solid #e0e0e0"}}>
-                {monthlyData.map(m => {
-                  const maxLabor = Math.max(...monthlyData.map(x=>x.labor), 1);
+              <div style={{minWidth: 580, display:"flex", gap:6, alignItems:"flex-end", height:130, padding:"8px 0", borderBottom:"1px solid #e0e0e0"}}>
+                {chartData.map(m => {
                   const h = (m.labor / maxLabor) * 100;
                   const isCur = m.ym === stYM;
                   return (
                     <div key={m.ym}
                       onClick={()=>setStYM(m.ym)}
-                      style={{flex:"1 0 44px",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer"}}>
+                      style={{flex:"1 0 42px",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer"}}>
                       <div style={{
                         width:24,
                         height: h,
@@ -2225,13 +2288,14 @@ function StatsTab({ data, setModal }) {
                   );
                 })}
               </div>
+              <div style={{fontSize:10,color:"#888",marginTop:6}}>← 최신 (왼쪽이 최근달)</div>
             </div>
           </div>
 
-          {/* 월별 데이터 표 */}
+          {/* 월별 데이터 표 — 최근 24개월 (2년) */}
           <div className="card">
             <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span>📋 월별 종합표</span>
+              <span>📋 월별 종합표 (최근 2년)</span>
               <button className="btn bs sm" onClick={()=>setModal({type:"historical"})}>+ 과거 데이터 입력</button>
             </div>
             <div style={{overflowX:"auto"}}>
@@ -2247,11 +2311,12 @@ function StatsTab({ data, setModal }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...monthlyData].reverse().map(m => {
+                  {[...tableData].reverse().map(m => {
                     const profit = m.sales - m.expenses;
                     const margin = m.sales > 0 ? (profit/m.sales*100).toFixed(1) : "0.0";
+                    const isEmpty = m.sales === 0 && m.expenses === 0 && !m.isHistorical;
                     return (
-                      <tr key={m.ym} style={{background: m.ym===stYM ? "#e7f5ff" : "transparent"}}>
+                      <tr key={m.ym} style={{background: m.ym===stYM ? "#e7f5ff" : "transparent", opacity: isEmpty ? 0.4 : 1}}>
                         <td style={{fontWeight:600}}>
                           {m.ym}
                           {m.isHistorical ? <span style={{color:"#b8860b",marginLeft:4,fontSize:10}}>📌</span> : null}
