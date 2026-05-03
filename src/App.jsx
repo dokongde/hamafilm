@@ -27,11 +27,29 @@ function hessenHols(yr){
 
 const DOW_KO=["일","월","화","수","목","금","토"];
 
-function getSlots(ds){
+// 전역으로 vacations 참조 (getSlots에서 isVac 체크용)
+let CURRENT_VACATIONS = [];
+function isInVacation(ds) {
+  return CURRENT_VACATIONS.some(v => ds >= v.start && ds <= v.end);
+}
+
+function getSlots(ds, isVacationOverride){
   const d=new Date(ds);
   const dow=d.getDay();
   const hols=hessenHols(d.getFullYear());
   if(dow===0||hols[ds]) return [];
+  // 방학 여부 판단: override가 있으면 그것, 없으면 자동 감지
+  const isVacation = (isVacationOverride !== undefined) ? isVacationOverride : isInVacation(ds);
+  // 방학 기간 평일(월~목): 오프닝이 12시부터 시작
+  if(isVacation && dow>=1 && dow<=4) return [
+    {type:"오프닝",start:"12:00",end:"16:00",hours:4},
+    {type:"클로징",start:"16:00",end:"20:30",hours:4.5}
+  ];
+  // 방학 기간 금요일도 12시부터
+  if(isVacation && dow===5) return [
+    {type:"오프닝",start:"12:00",end:"16:00",hours:4},
+    {type:"클로징",start:"16:00",end:"21:00",hours:5}
+  ];
   if(dow>=1&&dow<=4) return [
     {type:"오프닝",start:"13:00",end:"16:00",hours:3},
     {type:"클로징",start:"16:00",end:"20:30",hours:4.5}
@@ -1090,6 +1108,11 @@ export default function App() {
   const [storageMode, setStorageMode] = useState("loading");
   const [lastError, setLastError] = useState("");
 
+  // data가 바뀔 때마다 vacations를 전역 변수에 동기화 (getSlots에서 사용)
+  useEffect(() => {
+    if (data) CURRENT_VACATIONS = data.vacations || [];
+  }, [data]);
+
   useEffect(() => {
     (async () => {
       const d = await loadData();
@@ -1102,19 +1125,32 @@ export default function App() {
   }, []);
 
   // 다른 사용자가 변경한 데이터를 주기적으로 가져옴 (실시간 동기화)
+  // 단, 사용자가 입력 중이거나 모달이 열려있을 때는 폴링 정지
   useEffect(() => {
     const interval = setInterval(async () => {
-      // 저장 중이거나 방금(10초 이내) 저장했다면 폴링 스킵 — 옛 데이터로 덮어쓰기 방지
+      // 1. 저장 중 또는 방금 저장한 경우 (10초 이내)
       if (SAVING || (Date.now() - LAST_SAVE_AT < 10000)) return;
+      // 2. 모달이 열려있을 때 (입력 중일 가능성 높음)
+      if (modal !== null) return;
+      // 3. input/textarea/select에 포커스 있을 때
+      const active = document.activeElement;
+      if (active && (
+        active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.tagName === "SELECT"
+      )) return;
+      // 4. 페이지가 백그라운드일 때 (다른 탭) — 배터리 절약
+      if (document.hidden) return;
+
       try {
         const d = await loadData();
         if (d) setData(d);
         setStorageMode(STORAGE_MODE);
         setLastError(LAST_ERROR);
       } catch(e) {}
-    }, 5000);
+    }, 8000); // 5초 → 8초 (조금 더 여유)
     return () => clearInterval(interval);
-  }, []);
+  }, [modal]);
 
   const persist = useCallback(async (nd) => {
     setData(nd);
