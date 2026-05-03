@@ -1046,8 +1046,33 @@ function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
     <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className="modal">
         <h3>💰 {st?.name} · {modal.ym} 급여 지급</h3>
-        <div style={{background:"#f5f5f7",borderRadius:7,padding:"8px 11px",fontSize:12,color:"#666",marginBottom:12}}>
-          예상 급여: <strong style={{color:"#1971c2"}}>€{fmtE(modal.defaultAmount || 0)}</strong>
+        <div style={{background:"#f5f5f7",borderRadius:7,padding:"10px 12px",fontSize:12,color:"#666",marginBottom:12}}>
+          {modal.adjustment ? (
+            <>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span>이번달 기본 급여</span>
+                <strong className="mn" style={{color:"#1a1a1a"}}>€{fmtE(modal.baseAmount || 0)}</strong>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span>
+                  지난달 {modal.adjustment.isAdd ? "추가지급" : "차감"}
+                  {modal.adjustment.desc ? <span style={{fontSize:10,color:"#888",marginLeft:4}}>({modal.adjustment.desc})</span> : null}
+                </span>
+                <strong className="mn" style={{color: modal.adjustment.isAdd ? "#20a060" : "#e63946"}}>
+                  {modal.adjustment.isAdd ? "+" : "-"}€{fmtE(modal.adjustment.amount)}
+                </strong>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",paddingTop:5,marginTop:5,borderTop:"1.5px solid #d0d0d0"}}>
+                <strong style={{color:"#1971c2"}}>최종 지급액</strong>
+                <strong className="mn" style={{color:"#1971c2",fontSize:14}}>€{fmtE(modal.defaultAmount || 0)}</strong>
+              </div>
+            </>
+          ) : (
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <span>예상 급여</span>
+              <strong style={{color:"#1971c2"}}>€{fmtE(modal.defaultAmount || 0)}</strong>
+            </div>
+          )}
         </div>
 
         {/* 지급 / 미지급 토글 */}
@@ -1246,11 +1271,35 @@ function SalaryTab({ data, persist, setModal, gSt }) {
               {rows.map(r => {
                 const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
                 const paid = pay && pay.paid;
+                // 지난달 조정이 이번달에 반영될 것 찾기
+                const adjustment = (data.payrollRecords||[]).find(p =>
+                  p.staffId === r.st.id &&
+                  p.adjType && p.adjType !== "없음" &&
+                  p.adjAmount > 0 &&
+                  nextYM(p.ym) === salYM
+                );
+                const isAdd = adjustment && (adjustment.adjType === "추가지급" || adjustment.adjType === "추가");
+                const adjAmt = adjustment ? adjustment.adjAmount : 0;
+                // 조정 반영 후 최종 지급액
+                const finalPay = adjustment
+                  ? (isAdd ? r.pay + adjAmt : r.pay - adjAmt)
+                  : r.pay;
                 return (
                   <tr key={r.st.id}>
-                    <td><span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong></td>
+                    <td>
+                      <span className="dot" style={{background:r.st.color}} />
+                      <strong>{r.st.name}</strong>
+                    </td>
                     <td className="mn" style={{color:paid?"#888":"#1971c2",fontWeight:600,textDecoration:paid?"line-through":"none"}}>
-                      €{pay ? fmtE(pay.amount || r.pay) : fmtE(r.pay)}
+                      €{pay ? fmtE(pay.amount || finalPay) : fmtE(finalPay)}
+                      {adjustment ? (
+                        <div style={{fontSize:10,fontWeight:400,color:"#888",marginTop:2}}>
+                          기본 €{fmtE(r.pay)} {isAdd ? "+" : "-"} €{fmtE(adjAmt)}
+                          <span style={{color: isAdd ? "#20a060" : "#e63946", marginLeft:4, fontSize:9}}>
+                            {isAdd ? "(추가지급)" : "(차감)"}
+                          </span>
+                        </div>
+                      ) : null}
                     </td>
                     <td>
                       {pay && pay.method ? (
@@ -1274,7 +1323,16 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                     <td>
                       <button
                         className={"btn " + (paid ? "bs" : "bp") + " sm"}
-                        onClick={()=>setModal({type:"editPayment", staffId:r.st.id, ym:salYM, defaultAmount:r.pay})}>
+                        onClick={()=>setModal({
+                          type:"editPayment",
+                          staffId:r.st.id,
+                          ym:salYM,
+                          defaultAmount:finalPay,
+                          baseAmount: r.pay,
+                          adjustment: adjustment ? {
+                            isAdd, amount: adjAmt, desc: adjustment.adjDesc
+                          } : null
+                        })}>
                         {paid ? "수정" : "지급체크"}
                       </button>
                     </td>
