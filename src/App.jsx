@@ -62,9 +62,9 @@ const PIN_KEY = "hamafilm_pin_v2";
 
 const DEFAULT_DATA = {
   staff: [
-    {id:1,name:"김지현",phone:"",wage:12.41,color:"#5352ed"},
-    {id:2,name:"박소연",phone:"",wage:12.41,color:"#ff6b35"},
-    {id:3,name:"이민준",phone:"",wage:12.41,color:"#4ecdc4"}
+    {id:1,name:"유민",phone:"",wage:14.00,color:"#5352ed"},
+    {id:2,name:"서희",phone:"",wage:14.00,color:"#ff6b35"},
+    {id:3,name:"채현",phone:"",wage:14.00,color:"#4ecdc4"}
   ],
   shifts: [],
   fixed: [],
@@ -163,85 +163,94 @@ async function savePin(p){
 const css = `
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap');
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Noto Sans KR', sans-serif; background: #0e0e0e; color: #f0f0f0; min-height: 100vh; }
-.tb { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; height: 50px; background: #1a1a1a; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 50; }
-.logo { font-family: 'Space Mono', monospace; font-size: 14px; font-weight: 700; color: #f5c518; }
-.logo small { color: #aaa; font-size: 10px; font-family: 'Noto Sans KR', sans-serif; margin-left: 5px; }
+body { font-family: 'Noto Sans KR', sans-serif; background: #ffffff; color: #1a1a1a; min-height: 100vh; }
+.tb { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; height: 50px; background: #ffffff; border-bottom: 1px solid #e0e0e0; position: sticky; top: 0; z-index: 50; }
+.logo { font-family: 'Noto Sans KR', sans-serif; font-size: 15px; font-weight: 700; color: #4dabf7; letter-spacing: 1px; }
+.logo small { color: #888; font-size: 10px; font-family: 'Noto Sans KR', sans-serif; margin-left: 5px; font-weight: 400; letter-spacing: 0; }
 .nav { display: flex; gap: 2px; overflow-x: auto; }
-.nt { padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 11px; font-weight: 500; color: #aaa; border: none; background: transparent; white-space: nowrap; }
-.nt.on { color: #f5c518; background: rgba(245,197,24,.1); }
+.nt { padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 11px; font-weight: 500; color: #666; border: none; background: transparent; white-space: nowrap; }
+.nt.on { color: #4dabf7; background: rgba(77,171,247,.12); }
 .pg { padding: 14px; max-width: 900px; margin: 0 auto; }
-.card { background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
-.ct { font-size: 11px; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.card { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.ct { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 .g4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.chip { background: #242424; border-radius: 8px; padding: 12px; }
-.chip .lb { font-size: 10px; color: #666; margin-bottom: 4px; }
-.chip .vl { font-family: 'Space Mono', monospace; font-size: 16px; font-weight: 700; color: #f5c518; }
-.chip .sb { font-size: 10px; color: #666; margin-top: 2px; }
-input, select { background: #242424; border: 1px solid #333; border-radius: 7px; color: #f0f0f0; font-family: 'Noto Sans KR', sans-serif; font-size: 13px; padding: 7px 10px; width: 100%; outline: none; }
-input:focus, select:focus { border-color: #f5c518; }
-label { font-size: 11px; color: #aaa; display: block; margin-bottom: 3px; }
+.chip { background: #f5f5f7; border-radius: 8px; padding: 12px; }
+.chip .lb { font-size: 10px; color: #888; margin-bottom: 4px; }
+.chip .vl { font-family: 'Space Mono', monospace; font-size: 16px; font-weight: 700; color: #1a1a1a; }
+.chip .sb { font-size: 10px; color: #888; margin-top: 2px; }
+input, select { background: #ffffff; border: 1px solid #d0d0d0; border-radius: 7px; color: #1a1a1a; font-family: 'Noto Sans KR', sans-serif; font-size: 13px; padding: 7px 10px; width: 100%; outline: none; }
+input:focus, select:focus { border-color: #4dabf7; box-shadow: 0 0 0 2px rgba(77,171,247,.15); }
+input::placeholder { color: #b0b0b0; }
+label { font-size: 11px; color: #666; display: block; margin-bottom: 3px; }
 .fr { display: grid; gap: 8px; margin-bottom: 8px; }
 .fc2 { grid-template-columns: 1fr 1fr; }
 .btn { padding: 7px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; font-family: 'Noto Sans KR', sans-serif; }
-.bp { background: #f5c518; color: #000; }
-.bs { background: #242424; color: #f0f0f0; border: 1px solid #333; }
-.bd { background: rgba(255,71,87,.12); color: #ff4757; border: 1px solid rgba(255,71,87,.25); }
-.bg2 { background: rgba(46,213,115,.12); color: #2ed573; border: 1px solid rgba(46,213,115,.25); }
+.bp { background: #4dabf7; color: #fff; }
+.bp:hover { background: #339af0; }
+.bs { background: #f5f5f7; color: #1a1a1a; border: 1px solid #d0d0d0; }
+.bs:hover { background: #e8e8ed; }
+.bd { background: rgba(255,71,87,.1); color: #e63946; border: 1px solid rgba(255,71,87,.3); }
+.bg2 { background: rgba(46,213,115,.12); color: #20a060; border: 1px solid rgba(46,213,115,.3); }
 .sm { padding: 3px 7px; font-size: 11px; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
-.tbl th { padding: 7px 9px; text-align: left; color: #666; font-weight: 500; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #333; }
-.tbl td { padding: 7px 9px; border-bottom: 1px solid rgba(255,255,255,.04); vertical-align: middle; }
+.tbl th { padding: 7px 9px; text-align: left; color: #888; font-weight: 500; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #e0e0e0; }
+.tbl td { padding: 7px 9px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
 .tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: #fafafa; }
 .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
-.bgrn { background: rgba(46,213,115,.15); color: #2ed573; }
-.bylw { background: rgba(245,197,24,.15); color: #f5c518; }
-.bred { background: rgba(255,71,87,.15); color: #ff4757; }
-.bblu { background: rgba(83,82,237,.2); color: #9998ff; }
-.bgry { background: rgba(255,255,255,.08); color: #aaa; }
-.bprp { background: rgba(165,94,234,.2); color: #c47ff5; }
+.bgrn { background: rgba(46,213,115,.18); color: #20a060; }
+.bylw { background: rgba(245,197,24,.2); color: #b8860b; }
+.bred { background: rgba(255,71,87,.15); color: #e63946; }
+.bblu { background: rgba(77,171,247,.18); color: #1971c2; }
+.bgry { background: rgba(0,0,0,.06); color: #666; }
+.bprp { background: rgba(165,94,234,.18); color: #7950f2; }
 .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
 .mn { font-family: 'Space Mono', monospace; }
-.pos { color: #2ed573; font-family: 'Space Mono', monospace; }
+.pos { color: #20a060; font-family: 'Space Mono', monospace; font-weight: 600; }
 .cg { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-.cdow { text-align: center; font-size: 10px; color: #666; padding: 4px 0; font-weight: 600; }
-.cday { min-height: 60px; background: #242424; border-radius: 6px; padding: 4px; cursor: pointer; border: 1px solid transparent; overflow: hidden; }
-.cday.today { border-color: #f5c518; }
-.cday.hol { background: #1c1414; }
-.cday.vac { background: #111a11; }
-.cday.other { opacity: .2; }
-.dn { font-size: 10px; font-weight: 600; margin-bottom: 1px; color: #aaa; }
+.cdow { text-align: center; font-size: 10px; color: #888; padding: 4px 0; font-weight: 600; }
+.cday { min-height: 60px; background: #f5f5f7; border-radius: 6px; padding: 4px; cursor: pointer; border: 1px solid transparent; overflow: hidden; }
+.cday:hover { background: #ebebef; }
+.cday.today { border-color: #4dabf7; box-shadow: 0 0 0 1px #4dabf7; }
+.cday.understaffed { background: rgba(255, 212, 0, 0.25); border: 1.5px solid #ffd400; box-shadow: 0 0 8px rgba(255, 212, 0, 0.4); }
+.cday.hol { background: #ffe8e8; }
+.cday.vac { background: #e6f7e9; }
+.cday.other { opacity: .35; }
+.dn { font-size: 10px; font-weight: 600; margin-bottom: 1px; color: #666; }
 .sp { font-size: 8px; font-weight: 600; padding: 1px 3px; border-radius: 2px; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
-.ov { position: fixed; inset: 0; background: rgba(0,0,0,.87); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 12px; }
-.modal { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 20px; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; }
-.modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+.ov { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 12px; backdrop-filter: blur(2px); }
+.modal { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
+.modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #1a1a1a; }
 .mf { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
-.slb { display: block; width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #333; background: #242424; color: #f0f0f0; font-family: 'Noto Sans KR', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; margin-bottom: 6px; }
-.slb.sel { border-color: #f5c518; background: rgba(245,197,24,.09); color: #f5c518; }
-.slb.taken { opacity: .5; cursor: default; border-color: #2ed573; }
+.slb { display: block; width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #e0e0e0; background: #ffffff; color: #1a1a1a; font-family: 'Noto Sans KR', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; text-align: left; margin-bottom: 6px; }
+.slb:hover { border-color: #b0b0b0; }
+.slb.sel { border-color: #4dabf7; background: rgba(77,171,247,.08); color: #1971c2; }
+.slb.taken { opacity: .55; cursor: default; border-color: #2ed573; background: rgba(46,213,115,.06); }
 .slb.fxd { border-color: rgba(165,94,234,.5); }
 .sln { font-weight: 700; margin-bottom: 1px; }
-.slt { font-size: 11px; color: #aaa; font-family: 'Space Mono', monospace; }
+.slt { font-size: 11px; color: #888; font-family: 'Space Mono', monospace; }
 .spc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.sc { padding: 12px 8px; border-radius: 9px; border: 2px solid #333; background: #242424; cursor: pointer; text-align: center; }
+.sc { padding: 12px 8px; border-radius: 9px; border: 2px solid #e0e0e0; background: #ffffff; cursor: pointer; text-align: center; }
+.sc:hover { border-color: #4dabf7; }
 .sav { width: 38px; height: 38px; border-radius: 50%; margin: 0 auto 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #fff; }
-.snm { font-size: 12px; font-weight: 700; }
+.snm { font-size: 12px; font-weight: 700; color: #1a1a1a; }
 .dp { display: flex; gap: 5px; flex-wrap: wrap; margin: 6px 0; }
-.dpl { padding: 4px 9px; border-radius: 16px; border: 1px solid #333; background: #242424; cursor: pointer; font-size: 11px; font-weight: 600; color: #aaa; }
-.dpl.on { border-color: #f5c518; background: rgba(245,197,24,.12); color: #f5c518; }
-.fxr { background: #242424; border-radius: 7px; padding: 9px 11px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
-.pb { background: #1a1a1a; border: 1px solid #333; border-radius: 14px; padding: 26px 20px; width: 100%; max-width: 280px; text-align: center; }
+.dpl { padding: 4px 9px; border-radius: 16px; border: 1px solid #d0d0d0; background: #ffffff; cursor: pointer; font-size: 11px; font-weight: 600; color: #666; }
+.dpl.on { border-color: #4dabf7; background: rgba(77,171,247,.1); color: #1971c2; }
+.fxr { background: #f5f5f7; border-radius: 7px; padding: 9px 11px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+.pb { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 14px; padding: 26px 20px; width: 100%; max-width: 280px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
 .pds { display: flex; gap: 9px; justify-content: center; margin-bottom: 16px; }
-.pde { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #333; background: transparent; }
-.pde.f { background: #f5c518; border-color: #f5c518; }
+.pde { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #d0d0d0; background: transparent; }
+.pde.f { background: #4dabf7; border-color: #4dabf7; }
 .ppd { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-.pb2 { padding: 13px; border-radius: 9px; background: #242424; border: 1px solid #333; color: #f0f0f0; font-size: 18px; font-weight: 700; cursor: pointer; font-family: 'Space Mono', monospace; }
+.pb2 { padding: 13px; border-radius: 9px; background: #f5f5f7; border: 1px solid #d0d0d0; color: #1a1a1a; font-size: 18px; font-weight: 700; cursor: pointer; font-family: 'Space Mono', monospace; }
+.pb2:hover { background: #e8e8ed; }
 .notice { border-radius: 7px; padding: 9px 12px; font-size: 12px; margin-bottom: 10px; }
-.n-red { background: rgba(255,71,87,.1); border: 1px solid rgba(255,71,87,.3); color: #ff4757; }
-.n-grn { background: rgba(46,213,115,.1); border: 1px solid rgba(46,213,115,.3); color: #2ed573; }
-.n-blu { background: rgba(83,82,237,.1); border: 1px solid rgba(83,82,237,.3); color: #9998ff; }
+.n-red { background: rgba(255,71,87,.1); border: 1px solid rgba(255,71,87,.3); color: #e63946; }
+.n-grn { background: rgba(46,213,115,.1); border: 1px solid rgba(46,213,115,.3); color: #20a060; }
+.n-blu { background: rgba(77,171,247,.1); border: 1px solid rgba(77,171,247,.3); color: #1971c2; }
 @media (max-width: 480px) { .g4 { grid-template-columns: 1fr 1fr; } .g3 { grid-template-columns: 1fr; } }
 `;
 
@@ -344,7 +353,7 @@ function AddShiftModal({ modal, data, persist, close, toast, gSt, isVac, vacName
           </div>
         </div>
         {showWarn ? <div className="notice n-red">{warnText}</div> : null}
-        <div style={{fontSize:11,fontWeight:700,color:"#aaa",marginBottom:6}}>근무 타입</div>
+        <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:6}}>근무 타입</div>
         {slots.map(sl => (
           <button key={sl.type} className={"slb" + (sel===sl.type ? " sel" : "")} onClick={()=>setSel(sl.type)}>
             <div className="sln">{sl.type === "오프닝" ? "🌅" : "🌆"} {sl.type}</div>
@@ -371,7 +380,7 @@ function AddShiftModal({ modal, data, persist, close, toast, gSt, isVac, vacName
           </div>
         ) : null}
         {sel ? (
-          <div style={{background:"#242424",borderRadius:7,padding:9,fontSize:12,color:"#aaa",marginBottom:4}}>
+          <div style={{background:"#f5f5f7",borderRadius:7,padding:9,fontSize:12,color:"#888",marginBottom:4}}>
             예상: <strong style={{color:"#f5c518"}}>€{prev}</strong>
           </div>
         ) : null}
@@ -425,7 +434,7 @@ function AddFixedModal({ data, persist, close, toast }) {
             </select>
           </div>
         </div>
-        <div style={{fontSize:11,fontWeight:700,color:"#aaa",marginBottom:5}}>요일 선택</div>
+        <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:5}}>요일 선택</div>
         <div className="dp">
           {[1,2,3,4,5,6].map(d => (
             <div key={d} className={"dpl" + (dows.includes(d) ? " on" : "")} onClick={()=>toggle(d)}>{DN[d]}</div>
@@ -489,9 +498,9 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
   const ed = modal.edit;
   const [name, setName] = useState(ed?.name || "");
   const [phone, setPhone] = useState(ed?.phone || "");
-  const [wage, setWage] = useState(ed?.wage || 12.41);
+  const [wage, setWage] = useState(ed?.wage || 14);
   const [color, setColor] = useState(ed?.color || "#5352ed");
-  const colors = ["#5352ed","#ff6b35","#4ecdc4","#f5c518","#ff4757","#2ed573","#a55eea","#ff6b9d"];
+  const colors = ["#5352ed","#ff6b35","#4ecdc4","#f5c518","#ff4757","#2ed573","#a55eea","#ff6b9d","#00d2d3","#ff9ff3"];
   const save = async () => {
     if (!name) { toast("이름 입력"); return; }
     let nd;
@@ -569,7 +578,7 @@ function AddSalesModal({ data, persist, close, toast }) {
           </div>
         </div>
         {groups.map(g => (
-          <div key={g.title} style={{background:"#242424",borderRadius:8,padding:11,marginBottom:8}}>
+          <div key={g.title} style={{background:"#f5f5f7",borderRadius:8,padding:11,marginBottom:8}}>
             <div style={{fontSize:12,fontWeight:700,color:"#f5c518",marginBottom:8}}>{g.title}</div>
             <div className="fr fc2">
               <div>
@@ -583,7 +592,7 @@ function AddSalesModal({ data, persist, close, toast }) {
             </div>
           </div>
         ))}
-        <div style={{background:"#242424",borderRadius:8,padding:11,marginBottom:8}}>
+        <div style={{background:"#f5f5f7",borderRadius:8,padding:11,marginBottom:8}}>
           <div style={{fontSize:12,fontWeight:700,color:"#888",marginBottom:8}}>🔒 슈킹</div>
           <div>
             <label>금액</label>
@@ -633,7 +642,7 @@ function GenFixedModal({ modal, data, persist, close, toast, isVac }) {
     <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className="modal">
         <h3>⚡ 고정 스케줄 자동 생성</h3>
-        <div style={{fontSize:12,color:"#aaa",marginBottom:12}}>방학·공휴일·일요일 제외, 중복 생성 안 함</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>방학·공휴일·일요일 제외, 중복 생성 안 함</div>
         <div className="fr">
           <div>
             <label>생성할 월</label>
@@ -705,9 +714,9 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
             <input type="month" value={ym} onChange={e=>setYm(e.target.value)} />
           </div>
         </div>
-        <div style={{background:"#242424",borderRadius:7,padding:"8px 11px",fontSize:12,color:"#aaa",marginBottom:10}}>
+        <div style={{background:"#f5f5f7",borderRadius:7,padding:"8px 11px",fontSize:12,color:"#888",marginBottom:10}}>
           스케줄 기준: <strong>{refH}h</strong> · <strong style={{color:"#f5c518"}}>€{refPay}</strong>
-          <span style={{fontSize:10,color:"#666",marginLeft:6}}>(참고)</span>
+          <span style={{fontSize:10,color:"#888",marginLeft:6}}>(참고)</span>
         </div>
         <div className="fr fc2">
           <div>
@@ -840,7 +849,7 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                 <td>{r.h}h</td>
                 <td className="mn">€{fmtE(r.st.wage)}/h</td>
                 <td className="pos">€{fmtE(r.pay)}</td>
-                <td style={{color:"#666"}}>{r.cnt}회</td>
+                <td style={{color:"#888"}}>{r.cnt}회</td>
               </tr>
             ))}
           </tbody>
@@ -852,7 +861,7 @@ function SalaryTab({ data, persist, setModal, gSt }) {
           <button className="btn bs sm" onClick={()=>setModal({type:"addPayroll", ym:salYM})}>+ 추가</button>
         </div>
         {prSorted.length === 0 ? (
-          <p style={{color:"#666",fontSize:12}}>없음</p>
+          <p style={{color:"#888",fontSize:12}}>없음</p>
         ) : (
           <table className="tbl">
             <thead><tr><th>직원</th><th>월</th><th>시간</th><th>확정급여</th><th>조정</th><th>반영월</th><th></th></tr></thead>
@@ -919,7 +928,7 @@ function SalesTab({ data, persist, setModal }) {
           </thead>
           <tbody>
             {sales.length === 0 ? (
-              <tr><td colSpan={14} style={{textAlign:"center",color:"#666",padding:16}}>없음</td></tr>
+              <tr><td colSpan={14} style={{textAlign:"center",color:"#888",padding:16}}>없음</td></tr>
             ) : (
               sales.map(r => (
                 <tr key={r.id}>
@@ -1012,9 +1021,9 @@ function StatsTab({ data }) {
           <div key={c.n} style={{marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
               <span style={{fontSize:12}}>{c.n}</span>
-              <span className="mn" style={{fontSize:12,color:"#aaa"}}>{fmt(c.v)}</span>
+              <span className="mn" style={{fontSize:12,color:"#888"}}>{fmt(c.v)}</span>
             </div>
-            <div style={{background:"#242424",borderRadius:4,height:6,overflow:"hidden"}}>
+            <div style={{background:"#f5f5f7",borderRadius:4,height:6,overflow:"hidden"}}>
               <div style={{height:"100%", width:((c.v/mx*100).toFixed(1)+"%"), background:c.c, borderRadius:4}} />
             </div>
           </div>
@@ -1041,6 +1050,8 @@ export default function App() {
   const [pinErr, setPinErr] = useState("");
   const [svSid, setSvSid] = useState(null);
   const [svDate, setSvDate] = useState(todayStr());
+  const [svCalY, setSvCalY] = useState(new Date().getFullYear());
+  const [svCalM, setSvCalM] = useState(new Date().getMonth());
   const [svSel, setSvSel] = useState(null);
   const [storageMode, setStorageMode] = useState("loading");
   const [lastError, setLastError] = useState("");
@@ -1083,8 +1094,8 @@ export default function App() {
 
   if (!data) {
     return (
-      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#0e0e0e",color:"#f5c518",fontFamily:"monospace",fontSize:18}}>
-        🦛 로딩중…
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#ffffff",color:"#4dabf7",fontFamily:"monospace",fontSize:18}}>
+        💙 로딩중…
       </div>
     );
   }
@@ -1129,6 +1140,20 @@ export default function App() {
     const pfx = `${calY}-${String(calM+1).padStart(2,"0")}`;
     const ms = (data.shifts||[]).filter(s => s.date.startsWith(pfx)).sort((a, b) => a.date.localeCompare(b.date));
 
+    // 이번달 부족한 날(영업일이지만 스케줄 2개 미만) 계산
+    const understaffedDays = [];
+    for (let d = 1; d <= dim; d++) {
+      const ds = `${calY}-${String(calM+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const dow = new Date(ds).getDay();
+      const isH = !!hols[ds];
+      const isV = isVac(ds);
+      if (dow === 0 || isH || isV) continue; // 비영업일은 제외
+      const shiftCount = (data.shifts||[]).filter(s => s.date === ds).length;
+      if (shiftCount < 2) {
+        understaffedDays.push({ date: ds, day: d, count: shiftCount });
+      }
+    }
+
     const prevMonth = () => {
       if (calM === 0) { setCalY(y => y-1); setCalM(11); }
       else setCalM(m => m-1);
@@ -1149,6 +1174,38 @@ export default function App() {
             <button className="btn bp sm" onClick={()=>setModal({type:"addShift", date:todayStr()})}>+추가</button>
           </div>
         </div>
+        {understaffedDays.length > 0 ? (
+          <div style={{
+            background: "rgba(255, 212, 0, 0.25)",
+            border: "1.5px solid #ffd400",
+            borderRadius: 8,
+            padding: "10px 12px",
+            marginBottom: 10,
+            fontSize: 12
+          }}>
+            <div style={{color:"#b8860b", fontWeight:700, marginBottom:5}}>
+              ⚠️ 스케줄 부족: {understaffedDays.length}일
+            </div>
+            <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
+              {understaffedDays.map(u => (
+                <span
+                  key={u.date}
+                  onClick={()=>setModal({type:"dayDetail", date:u.date})}
+                  style={{
+                    background:"rgba(255,212,0,.4)",
+                    color:"#b8860b",
+                    padding:"3px 8px",
+                    borderRadius:5,
+                    fontWeight:600,
+                    cursor:"pointer",
+                    fontSize:11
+                  }}>
+                  {u.day}일 ({u.count}/2)
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="cg">
           {DOW_KO.map((d, i) => (
             <div key={d} className="cdow" style={{color: i===0 ? "#ff4757" : ""}}>{d}</div>
@@ -1161,18 +1218,26 @@ export default function App() {
             const isT = ds === td && !c.other;
             const shifts = (data.shifts||[]).filter(s => s.date === ds);
             const sorted = [...shifts].sort((a, b) => (a.slotType==="오프닝"?0:1) - (b.slotType==="오프닝"?0:1));
+            // 영업일(공휴일·일요일·방학 아닌 날)인데 스케줄이 2개 미만이면 부족 경고
+            const isBusinessDay = !c.other && dow !== 0 && !isH && !isV;
+            const isUnderstaffed = isBusinessDay && shifts.length < 2;
             let nc = "#aaa";
             if ((dow === 0 || isH) && !c.other) nc = "#ff4757";
             else if (isV && !c.other) nc = "#2ed573";
+            else if (isUnderstaffed) nc = "#b8860b";
             const cls = "cday" +
               (c.other ? " other" : "") +
               (isH ? " hol" : "") +
               (isV && !isH ? " vac" : "") +
+              (isUnderstaffed ? " understaffed" : "") +
               (isT ? " today" : "");
             const handleClick = () => { if (!c.other) setModal({type:"dayDetail", date:ds}); };
             return (
               <div key={idx} className={cls} onClick={handleClick}>
-                <div className="dn" style={{color:nc}}>{c.d}</div>
+                <div className="dn" style={{color:nc, display:"flex", alignItems:"center", gap:3}}>
+                  {c.d}
+                  {isUnderstaffed ? <span style={{fontSize:9, color:"#b8860b"}}>⚠️</span> : null}
+                </div>
                 {sorted.slice(0, 4).map(sh => {
                   const st = gSt(sh.staffId);
                   const bg = st ? (st.color + "28") : "#333";
@@ -1183,7 +1248,13 @@ export default function App() {
                   );
                 })}
                 {shifts.length > 4 ? (
-                  <div style={{fontSize:7,color:"#666"}}>+{shifts.length-4}</div>
+                  <div style={{fontSize:7,color:"#888"}}>+{shifts.length-4}</div>
+                ) : null}
+                {isUnderstaffed && shifts.length === 0 ? (
+                  <div style={{fontSize:8, color:"#b8860b", fontWeight:700, marginTop:1}}>비어있음</div>
+                ) : null}
+                {isUnderstaffed && shifts.length === 1 ? (
+                  <div style={{fontSize:8, color:"#b8860b", fontWeight:700, marginTop:1}}>1명만</div>
                 ) : null}
               </div>
             );
@@ -1198,7 +1269,7 @@ export default function App() {
               </thead>
               <tbody>
                 {ms.length === 0 ? (
-                  <tr><td colSpan={8} style={{textAlign:"center",color:"#666",padding:14}}>없음</td></tr>
+                  <tr><td colSpan={8} style={{textAlign:"center",color:"#888",padding:14}}>없음</td></tr>
                 ) : (
                   ms.map(sh => {
                     const st = gSt(sh.staffId);
@@ -1254,13 +1325,13 @@ export default function App() {
             <button className="btn bs sm" onClick={()=>setModal({type:"addVac"})}>+ 방학 추가</button>
           </div>
           {(data.vacations||[]).length === 0 ? (
-            <p style={{color:"#666",fontSize:12}}>없음</p>
+            <p style={{color:"#888",fontSize:12}}>없음</p>
           ) : (
             (data.vacations||[]).sort((a, b) => a.start.localeCompare(b.start)).map(v => (
               <div key={v.id} className="fxr">
                 <div>
                   <span className="badge bgrn" style={{marginRight:7}}>{v.name}</span>
-                  <span style={{fontSize:12,color:"#aaa"}}>{v.start} ~ {v.end}</span>
+                  <span style={{fontSize:12,color:"#888"}}>{v.start} ~ {v.end}</span>
                 </div>
                 <button className="btn bd sm" onClick={async()=>await persist({...data, vacations:(data.vacations||[]).filter(x=>x.id!==v.id)})}>삭제</button>
               </div>
@@ -1273,7 +1344,7 @@ export default function App() {
             <button className="btn bp sm" onClick={()=>setModal({type:"addFixed"})}>+ 고정 추가</button>
           </div>
           {Object.keys(byStaff).length === 0 ? (
-            <p style={{color:"#666",fontSize:12}}>없음</p>
+            <p style={{color:"#888",fontSize:12}}>없음</p>
           ) : (
             Object.entries(byStaff).map(([sid, fxs]) => {
               const st = gSt(parseInt(sid));
@@ -1300,7 +1371,7 @@ export default function App() {
         </div>
         <div className="card" style={{border:"1px solid rgba(245,197,24,.3)"}}>
           <div className="ct" style={{color:"#f5c518"}}>⚡ 자동 생성</div>
-          <div style={{fontSize:12,color:"#aaa",marginBottom:10}}>방학·공휴일·일요일 제외</div>
+          <div style={{fontSize:12,color:"#888",marginBottom:10}}>방학·공휴일·일요일 제외</div>
           <button className="btn bp" style={{width:"100%"}} onClick={()=>setModal({type:"genFixed", ym:curYM()})}>⚡ 이번달 생성</button>
         </div>
       </div>
@@ -1321,7 +1392,7 @@ export default function App() {
             {(data.staff||[]).map(st => (
               <tr key={st.id}>
                 <td><strong>{st.name}</strong></td>
-                <td style={{color:"#aaa"}}>{st.phone || "—"}</td>
+                <td style={{color:"#888"}}>{st.phone || "—"}</td>
                 <td className="mn">€{fmtE(st.wage)}/h</td>
                 <td><span style={{display:"inline-block",width:16,height:16,borderRadius:"50%",background:st.color}} /></td>
                 <td>
@@ -1388,7 +1459,7 @@ export default function App() {
     return (
       <div>
         <div className="tb">
-          <div className="logo">🦛 하마필름<small>스케줄</small></div>
+          <div className="logo">💙 HAMAFILM<small>스케줄</small></div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             <span
               onClick={async()=>{
@@ -1424,7 +1495,7 @@ export default function App() {
           {!svSid ? (
             <div>
               <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>안녕하세요 👋</div>
-              <div style={{fontSize:12,color:"#aaa",marginBottom:14}}>이름을 선택하세요.</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:14}}>이름을 선택하세요.</div>
               <div className="spc">
                 {(data.staff||[]).map(s => (
                   <div key={s.id} className="sc" onClick={()=>{setSvSid(s.id); setSvDate(todayStr()); setSvSel(null);}}>
@@ -1454,7 +1525,7 @@ export default function App() {
                 ) : null}
                 <div style={{fontSize:12,fontWeight:700,marginBottom:7}}>⏰ 근무 타입</div>
                 {slots.length === 0 ? (
-                  <div style={{color:"#666",fontSize:12}}>근무 없음</div>
+                  <div style={{color:"#888",fontSize:12}}>근무 없음</div>
                 ) : (
                   slots.map(sl => {
                     const isTaken = taken.includes(sl.type);
@@ -1482,7 +1553,7 @@ export default function App() {
               <div className="card">
                 <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📌 내 이번달 스케줄</div>
                 {myS.length === 0 ? (
-                  <p style={{color:"#666",fontSize:12}}>없음</p>
+                  <p style={{color:"#888",fontSize:12}}>없음</p>
                 ) : (
                   <table className="tbl">
                     <thead><tr><th>날짜</th><th>요일</th><th>타입</th><th>시간</th><th></th></tr></thead>
@@ -1504,8 +1575,153 @@ export default function App() {
           )}
           <div className="card">
             <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📋 이번달 전체 스케줄</div>
+            {(() => {
+              // 이번달 부족한 날 계산
+              const ymNow = curYM();
+              const [y, m] = ymNow.split("-").map(Number);
+              const dim = new Date(y, m, 0).getDate();
+              const hols = hessenHols(y);
+              const understaffed = [];
+              for (let d = 1; d <= dim; d++) {
+                const ds = `${ymNow}-${String(d).padStart(2,"0")}`;
+                const dow = new Date(ds).getDay();
+                if (dow === 0 || hols[ds] || isVac(ds)) continue;
+                const cnt = (data.shifts||[]).filter(s => s.date === ds).length;
+                if (cnt < 2) understaffed.push({date:ds, day:d, count:cnt});
+              }
+              if (understaffed.length === 0) return null;
+              return (
+                <div style={{
+                  background: "rgba(255, 212, 0, 0.25)",
+                  border: "1.5px solid #ffd400",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  marginBottom: 10,
+                  fontSize: 12
+                }}>
+                  <div style={{color:"#b8860b", fontWeight:700, marginBottom:5}}>
+                    ⚠️ 사람이 부족한 날 ({understaffed.length}일) — 도와주세요!
+                  </div>
+                  <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
+                    {understaffed.map(u => (
+                      <span
+                        key={u.date}
+                        onClick={()=>{ setSvDate(u.date); setSvSel(null); }}
+                        style={{
+                          background:"rgba(255,212,0,.4)",
+                          color:"#b8860b",
+                          padding:"3px 8px",
+                          borderRadius:5,
+                          fontWeight:600,
+                          fontSize:11,
+                          cursor:"pointer"
+                        }}>
+                        {u.day}일 ({u.count}/2)
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {/* 달력 — 직원 화면용 */}
+            {(() => {
+              const hols = hessenHols(svCalY);
+              const first = new Date(svCalY, svCalM, 1).getDay();
+              const dim = new Date(svCalY, svCalM+1, 0).getDate();
+              const dprev = new Date(svCalY, svCalM, 0).getDate();
+              const cells = [];
+              for (let i = first - 1; i >= 0; i--) cells.push({ d: dprev - i, other: true });
+              for (let i = 1; i <= dim; i++) cells.push({ d: i, other: false });
+              while (cells.length % 7 !== 0) cells.push({ d: cells.length - first - dim + 1, other: true });
+              const td = todayStr();
+
+              const prevM = () => {
+                if (svCalM === 0) { setSvCalY(y => y-1); setSvCalM(11); }
+                else setSvCalM(m => m-1);
+              };
+              const nextM = () => {
+                if (svCalM === 11) { setSvCalY(y => y+1); setSvCalM(0); }
+                else setSvCalM(m => m+1);
+              };
+
+              return (
+                <div style={{marginBottom:14}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div style={{fontSize:14,fontWeight:700}}>{svCalY}년 {svCalM+1}월</div>
+                    <div style={{display:"flex",gap:5}}>
+                      <button className="btn bs sm" onClick={prevM}>◀</button>
+                      <button className="btn bs sm" onClick={nextM}>▶</button>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,marginBottom:6,fontSize:10,color:"#888",flexWrap:"wrap"}}>
+                    <span>📅 날짜 클릭 → 등록</span>
+                    <span style={{color:"#b8860b"}}>⚠️ 노란색 = 인원 부족</span>
+                  </div>
+                  <div className="cg">
+                    {DOW_KO.map((d, i) => (
+                      <div key={d} className="cdow" style={{color: i===0 ? "#e63946" : ""}}>{d}</div>
+                    ))}
+                    {cells.map((c, idx) => {
+                      const ds = `${svCalY}-${String(svCalM+1).padStart(2,"0")}-${String(c.d).padStart(2,"0")}`;
+                      const dow = new Date(ds).getDay();
+                      const isH = !c.other && !!hols[ds];
+                      const isV = !c.other && isVac(ds);
+                      const isT = ds === td && !c.other;
+                      const isSelected = ds === svDate && !c.other;
+                      const shifts = (data.shifts||[]).filter(s => s.date === ds);
+                      const sorted = [...shifts].sort((a, b) => (a.slotType==="오프닝"?0:1) - (b.slotType==="오프닝"?0:1));
+                      const isBusinessDay = !c.other && dow !== 0 && !isH && !isV;
+                      const isUnderstaffed = isBusinessDay && shifts.length < 2;
+                      const myRegistered = svSid && shifts.some(s => s.staffId === svSid);
+                      let nc = "#666";
+                      if ((dow === 0 || isH) && !c.other) nc = "#e63946";
+                      else if (isV && !c.other) nc = "#20a060";
+                      else if (isUnderstaffed) nc = "#b8860b";
+                      let cls = "cday";
+                      if (c.other) cls += " other";
+                      if (isH) cls += " hol";
+                      if (isV && !isH) cls += " vac";
+                      if (isUnderstaffed) cls += " understaffed";
+                      if (isT) cls += " today";
+                      const handleClick = () => {
+                        if (c.other) return;
+                        setSvDate(ds);
+                        setSvSel(null);
+                        // 달력 클릭 시 위로 스크롤해서 날짜 선택 카드 보이게
+                        try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch(e) {}
+                      };
+                      const cellStyle = isSelected ? {
+                        outline: "2.5px solid #4dabf7",
+                        outlineOffset: "-2px"
+                      } : {};
+                      return (
+                        <div key={idx} className={cls} onClick={handleClick} style={cellStyle}>
+                          <div className="dn" style={{color:nc, display:"flex", alignItems:"center", gap:3}}>
+                            {c.d}
+                            {myRegistered ? <span style={{fontSize:8, color:"#4dabf7"}}>★</span> : null}
+                            {isUnderstaffed ? <span style={{fontSize:9, color:"#b8860b"}}>⚠️</span> : null}
+                          </div>
+                          {sorted.slice(0, 4).map(sh => {
+                            const st = gSt(sh.staffId);
+                            const bg = st ? (st.color + "28") : "#ddd";
+                            const fg = st ? st.color : "#888";
+                            const nm = st ? st.name.slice(0, 3) : "?";
+                            return (
+                              <div key={sh.id} className="sp" style={{background:bg, color:fg}}>{nm}</div>
+                            );
+                          })}
+                          {shifts.length > 4 ? (
+                            <div style={{fontSize:7,color:"#888"}}>+{shifts.length-4}</div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             {allS.length === 0 ? (
-              <p style={{color:"#666",fontSize:12}}>없음</p>
+              <p style={{color:"#888",fontSize:12}}>없음</p>
             ) : (
               <table className="tbl">
                 <thead><tr><th>날짜</th><th>요일</th><th>직원</th><th>타입</th><th>시간</th></tr></thead>
@@ -1545,8 +1761,8 @@ export default function App() {
           }
         }}>
           <div className="pb">
-            <div style={{fontFamily:"monospace",fontSize:16,fontWeight:700,color:"#f5c518",marginBottom:4}}>🦛 하마필름</div>
-            <div style={{fontSize:12,color:"#aaa",marginBottom:18}}>관리자 PIN</div>
+            <div style={{fontFamily:"'Noto Sans KR', sans-serif",fontSize:17,fontWeight:700,color:"#4dabf7",marginBottom:4,letterSpacing:1}}>💙 HAMAFILM</div>
+            <div style={{fontSize:12,color:"#888",marginBottom:18}}>관리자 PIN</div>
             <div className="pds">
               {[0,1,2,3].map(i => (
                 <div key={i} className={"pde" + (i < pinBuf.length ? " f" : "")} />
@@ -1558,9 +1774,9 @@ export default function App() {
                 <button key={d} className="pb2" onClick={()=>doPinInput(String(d))}>{d}</button>
               ))}
               <button className="pb2" onClick={()=>doPinInput("0")} style={{gridColumn:2}}>0</button>
-              <button className="pb2" style={{fontSize:14,color:"#aaa"}} onClick={()=>setPinBuf(b => b.slice(0, -1))}>⌫</button>
+              <button className="pb2" style={{fontSize:14,color:"#888"}} onClick={()=>setPinBuf(b => b.slice(0, -1))}>⌫</button>
             </div>
-            <button style={{background:"none",border:"none",color:"#666",fontSize:12,cursor:"pointer"}} onClick={()=>{closeModal(); setPinBuf(""); setPinErr("");}}>취소</button>
+            <button style={{background:"none",border:"none",color:"#888",fontSize:12,cursor:"pointer"}} onClick={()=>{closeModal(); setPinBuf(""); setPinErr("");}}>취소</button>
           </div>
         </div>
       );
@@ -1577,19 +1793,19 @@ export default function App() {
             {hols[ds] ? <span className="badge bred" style={{marginBottom:8,display:"inline-block"}}>🎌 {hols[ds]}</span> : null}
             {isVac(ds) ? <span className="badge bgrn" style={{marginBottom:8,display:"inline-block",marginLeft:4}}>🏖 {vacName(ds)}</span> : null}
             {shifts.length === 0 ? (
-              <p style={{color:"#666",fontSize:13}}>스케줄 없음</p>
+              <p style={{color:"#888",fontSize:13}}>스케줄 없음</p>
             ) : (
               shifts.map(sh => {
                 const st = gSt(sh.staffId);
                 const h = shiftHours(sh);
                 const tCls = sh.slotType === "오프닝" ? "bylw" : "bgrn";
                 return (
-                  <div key={sh.id} style={{background:"#242424",borderRadius:8,padding:10,marginBottom:7,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div key={sh.id} style={{background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:7,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
                       <span className="dot" style={{background:st?.color||"#666"}} />
                       <strong>{st?.name||"?"}</strong>
                       <span className={"badge " + tCls} style={{marginLeft:5}}>{sh.slotType}</span>
-                      <div style={{fontSize:11,color:"#aaa",marginTop:2}}>{sh.start}~{sh.end} · {h}h · €{fmtE(h * (st?.wage || 0))}</div>
+                      <div style={{fontSize:11,color:"#888",marginTop:2}}>{sh.start}~{sh.end} · {h}h · €{fmtE(h * (st?.wage || 0))}</div>
                     </div>
                     <button className="btn bd sm" onClick={async()=>{
                       await persist({...data, shifts: (data.shifts||[]).filter(s => s.id !== sh.id)});
@@ -1635,7 +1851,7 @@ export default function App() {
       {mode === "staff" ? renderStaffView() : (
         <div>
           <div className="tb">
-            <div className="logo">🦛 하마필름<small>관리자</small></div>
+            <div className="logo">💙 HAMAFILM<small>관리자</small></div>
             <div className="nav">
               {tabs.map(([t, lbl]) => (
                 <button key={t} className={"nt" + (adminTab === t ? " on" : "")} onClick={()=>setAdminTab(t)}>{lbl}</button>
@@ -1667,7 +1883,7 @@ export default function App() {
       )}
       {renderModal()}
       {toast ? (
-        <div style={{position:"fixed",bottom:18,right:18,background:"#1a1a1a",border:"1px solid #f5c518",borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:500,zIndex:200}}>{toast}</div>
+        <div style={{position:"fixed",bottom:18,right:18,background:"#1a1a1a",color:"#fff",borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:500,zIndex:200,boxShadow:"0 4px 16px rgba(0,0,0,.15)"}}>{toast}</div>
       ) : null}
     </>
   );
