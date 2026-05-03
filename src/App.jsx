@@ -112,23 +112,46 @@ async function saveData(d){
   try {
     const existing = await fetchAll();
     existing[STORE_KEY] = d;
-    const payload = encodeURIComponent(JSON.stringify(existing));
-    const res = await fetch(GAS_URL + "?save=" + payload, { method: "GET", redirect: "follow" });
+    const body = JSON.stringify(existing);
+
+    // POST로 보내기 (URL 길이 제한 회피). text/plain은 CORS preflight 안 일으킴.
+    const res = await fetch(GAS_URL, {
+      method: "POST",
+      body: body,
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      redirect: "follow"
+    });
+
     if (res.ok) {
-      STORAGE_MODE = "shared";
-      LAST_SAVE_AT = Date.now();
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
-      return;
+      const txt = await res.text();
+      try {
+        const result = JSON.parse(txt);
+        if (result.ok || result.data !== undefined) {
+          STORAGE_MODE = "shared";
+          LAST_ERROR = "";
+          LAST_SAVE_AT = Date.now();
+          try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
+          return true;
+        }
+      } catch(e) {
+        // 응답이 JSON 아님 — 저장 성공 여부 불확실
+        LAST_ERROR = "응답 파싱 실패: " + txt.slice(0, 100);
+      }
+    } else {
+      LAST_ERROR = "HTTP " + res.status;
     }
   } catch(e) {
+    LAST_ERROR = e.message || String(e);
     console.error("GAS save error", e);
   } finally {
     SAVING = false;
   }
+  // 폴백 — 로컬에라도 저장
   try {
     STORAGE_MODE = "local";
     localStorage.setItem(STORE_KEY, JSON.stringify(d));
   } catch(e) {}
+  return false;
 }
 
 async function fetchAll() {
@@ -158,8 +181,13 @@ async function savePin(p){
   try {
     const existing = await fetchAll();
     existing[PIN_KEY] = p;
-    const payload = encodeURIComponent(JSON.stringify(existing));
-    await fetch(GAS_URL + "?save=" + payload, { method: "GET", redirect: "follow" });
+    const body = JSON.stringify(existing);
+    await fetch(GAS_URL, {
+      method: "POST",
+      body: body,
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      redirect: "follow"
+    });
     try { localStorage.setItem(PIN_KEY, p); } catch(e) {}
     return;
   } catch(e) {}
@@ -1090,7 +1118,14 @@ export default function App() {
 
   const persist = useCallback(async (nd) => {
     setData(nd);
-    await saveData(nd);
+    const ok = await saveData(nd);
+    if (!ok) {
+      // 저장 실패 → 사용자에게 즉시 알림 (자동 사라짐 방지)
+      setToast("⚠️ 저장 실패! 인터넷 확인 후 다시 시도하세요");
+      setTimeout(() => setToast(""), 5000);
+    }
+    setStorageMode(STORAGE_MODE);
+    setLastError(LAST_ERROR);
   }, []);
 
   const showToast = useCallback((msg) => {
