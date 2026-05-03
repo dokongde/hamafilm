@@ -941,7 +941,8 @@ function CsvImportModal({ data, persist, close, toast }) {
           if (!m) continue;
           const date = `${m[3]}-${m[2]}-${m[1]}`;
           let amt = parseAmt(r[iAmount]);
-          if (r[iTyp] === "Rückerstattung") amt = -amt; // 반품
+          // 환불(Rückerstattung)의 경우 CSV에 이미 음수(-)로 기록되어 있음 → 그대로 사용
+          // (음수 그대로 더하면 매출에서 차감됨)
           const cat = classifySumup(r[iDesc]);
           const isCash = (r[iMethod] || "") === "Bar";
           const day = ensure(date);
