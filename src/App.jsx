@@ -2483,21 +2483,96 @@ export default function App() {
               </div>
               <div className="card">
                 <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📌 내 이번달 스케줄</div>
+                {(() => {
+                  // 이번달 내 시간/급여 계산
+                  const me = gSt(svSid);
+                  const wage = me?.wage || 0;
+                  let totalH = 0;
+                  myS.forEach(s => { totalH += shiftHours(s); });
+                  const expectedPay = totalH * wage;
+
+                  // 다음 달 조정 확인 (지난달 기록에서 이번달에 반영될 것)
+                  const ymNow = curYM();
+                  const adjustment = (data.payrollRecords||[]).find(p =>
+                    p.staffId === svSid &&
+                    p.adjType && p.adjType !== "없음" &&
+                    p.adjAmount > 0 &&
+                    nextYM(p.ym) === ymNow
+                  );
+                  const isAdd = adjustment && (adjustment.adjType === "추가지급" || adjustment.adjType === "추가");
+                  const adjAmount = adjustment ? adjustment.adjAmount : 0;
+                  const finalPay = isAdd ? expectedPay + adjAmount : (adjustment ? expectedPay - adjAmount : expectedPay);
+
+                  // 이번 달 지급 기록
+                  const payment = (data.payments||[]).find(p => p.staffId===svSid && p.ym===ymNow);
+                  const isPaid = payment && payment.paid;
+
+                  return (
+                    <div style={{
+                      background: "linear-gradient(135deg, rgba(77,171,247,.12), rgba(165,94,234,.1))",
+                      border: "1.5px solid #4dabf7",
+                      borderRadius: 10,
+                      padding: "12px 14px",
+                      marginBottom: 12
+                    }}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <span style={{fontSize:11,color:"#1971c2",fontWeight:600}}>💰 내 예상 급여 ({ymNow})</span>
+                        {isPaid ? (
+                          <span className="badge bgrn">✓ 지급됨 {payment.paidDate || ""}</span>
+                        ) : (
+                          <span className="badge bred">미지급</span>
+                        )}
+                      </div>
+                      <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:6}}>
+                        <span style={{fontSize:24,fontWeight:700,color:"#1971c2",fontFamily:"'Space Mono', monospace"}}>
+                          €{fmtE(finalPay)}
+                        </span>
+                        <span style={{fontSize:11,color:"#666"}}>
+                          ({totalH}h × €{fmtE(wage)}/h)
+                        </span>
+                      </div>
+                      {adjustment ? (
+                        <div style={{
+                          fontSize:11,
+                          color: isAdd ? "#20a060" : "#e63946",
+                          background: "#fff",
+                          borderRadius:5,
+                          padding:"5px 8px",
+                          marginTop:5
+                        }}>
+                          {isAdd ? "➕ 지난달 추가지급" : "➖ 지난달 차감"} {isAdd ? "+" : "-"}€{fmtE(adjAmount)}
+                          {adjustment.adjDesc ? <span style={{color:"#888",marginLeft:4}}>· {adjustment.adjDesc}</span> : null}
+                        </div>
+                      ) : null}
+                      {isPaid && payment.method ? (
+                        <div style={{fontSize:11,color:"#666",marginTop:4}}>
+                          방법: {payment.method} · 실제 €{fmtE(payment.amount || finalPay)}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
                 {myS.length === 0 ? (
-                  <p style={{color:"#888",fontSize:12}}>없음</p>
+                  <p style={{color:"#888",fontSize:12}}>이번달 등록된 스케줄 없음</p>
                 ) : (
                   <table className="tbl">
-                    <thead><tr><th>날짜</th><th>요일</th><th>타입</th><th>시간</th><th></th></tr></thead>
+                    <thead><tr><th>날짜</th><th>요일</th><th>타입</th><th>시간</th><th>급여</th><th></th></tr></thead>
                     <tbody>
-                      {myS.map(s => (
-                        <tr key={s.id}>
-                          <td>{s.date}</td>
-                          <td>{dowKo(s.date)}</td>
-                          <td><span className={"badge " + (s.slotType === "오프닝" ? "bylw" : "bgrn")}>{s.slotType}</span></td>
-                          <td className="mn" style={{fontSize:11}}>{s.start}~{s.end}</td>
-                          <td><button className="btn bd sm" onClick={()=>doCancel(s.id)}>취소</button></td>
-                        </tr>
-                      ))}
+                      {myS.map(s => {
+                        const me = gSt(svSid);
+                        const h = shiftHours(s);
+                        const pay = h * (me?.wage || 0);
+                        return (
+                          <tr key={s.id}>
+                            <td>{s.date}</td>
+                            <td>{dowKo(s.date)}</td>
+                            <td><span className={"badge " + (s.slotType === "오프닝" ? "bylw" : "bgrn")}>{s.slotType}</span></td>
+                            <td className="mn" style={{fontSize:11}}>{s.start}~{s.end} ({h}h)</td>
+                            <td className="mn" style={{color:"#1971c2",fontSize:11}}>€{fmtE(pay)}</td>
+                            <td><button className="btn bd sm" onClick={()=>doCancel(s.id)}>취소</button></td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
