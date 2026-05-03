@@ -721,7 +721,11 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
   const [ym, setYm] = useState(rec?.ym || modal.ym || curYM());
   const [amount, setAmount] = useState(rec?.amount || "");
   const [hours, setHours] = useState(rec?.hours || "");
-  const [adjType, setAdjType] = useState(rec?.adjType || "없음");
+  const [adjType, setAdjType] = useState(() => {
+    const t = rec?.adjType || "없음";
+    if (t === "추가") return "추가지급"; // 옛날 데이터 마이그레이션
+    return t;
+  });
   const [adjAmt, setAdjAmt] = useState(rec?.adjAmount || "");
   const [adjDesc, setAdjDesc] = useState(rec?.adjDesc || "");
   const shifts = (data.shifts||[]).filter(s => s.staffId===sid && s.date.startsWith(ym));
@@ -730,8 +734,8 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
   const st = gSt(sid);
   const refPay = fmtE(refH * (st?.wage || 0));
   const hasAdj = adjType !== "없음" && parseFloat(adjAmt) > 0;
-  const adjSign = adjType === "차감" ? "+" : "-";
-  const adjCol = adjType === "차감" ? "#2ed573" : "#ff4757";
+  const adjSign = adjType === "추가지급" ? "+" : "-";
+  const adjCol = adjType === "추가지급" ? "#20a060" : "#e63946";
 
   const save = async () => {
     if (!amount) { toast("확정급여 입력"); return; }
@@ -785,14 +789,14 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
             <input type="number" value={hours} onChange={e=>setHours(e.target.value)} step="0.5" placeholder={String(refH)} />
           </div>
         </div>
-        <div style={{fontSize:11,fontWeight:700,color:"#ff6b35",margin:"8px 0 5px"}}>⚖️ 조정 (다음달 반영)</div>
+        <div style={{fontSize:11,fontWeight:700,color:"#d94c1a",margin:"8px 0 5px"}}>⚖️ 조정 (다음달 반영)</div>
         <div className="fr fc2">
           <div>
             <label>유형</label>
             <select value={adjType} onChange={e=>setAdjType(e.target.value)}>
               <option value="없음">없음</option>
-              <option value="차감">차감 → 다음달에 더 줌</option>
-              <option value="추가">추가 → 다음달에 덜 줌</option>
+              <option value="추가지급">➕ 추가지급 (이번달 더 일함 → 다음달 더 줌)</option>
+              <option value="차감">➖ 차감 (이번달 덜 일함 → 다음달 덜 줌)</option>
             </select>
           </div>
           <div>
@@ -1161,14 +1165,17 @@ function SalaryTab({ data, persist, setModal, gSt }) {
           <div style={{fontSize:12,fontWeight:700,color:"#d94c1a",marginBottom:7}}>⚠️ 이번달 반영할 조정금액!</div>
           {pending.map(p => {
             const st = gSt(p.staffId);
-            const sign = p.adjType === "차감" ? "+" : "-";
-            const col = p.adjType === "차감" ? "#20a060" : "#e63946";
+            // 옛날 "추가"도 "추가지급"과 같이 처리
+            const isAdd = p.adjType === "추가지급" || p.adjType === "추가";
+            const sign = isAdd ? "+" : "-";
+            const col = isAdd ? "#20a060" : "#e63946";
+            const label = isAdd ? "추가지급" : "차감";
             return (
               <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fff",border:"1px solid #ffd4bb",borderRadius:6,padding:"7px 10px",marginBottom:5}}>
                 <div style={{color:"#1a1a1a"}}>
                   <span className="dot" style={{background:st?.color||"#666"}} />
                   <strong style={{color:"#1a1a1a"}}>{st?.name||"?"}</strong>
-                  <span className={"badge " + (p.adjType==="차감" ? "bgrn" : "bred")} style={{marginLeft:6}}>{p.adjType}</span>
+                  <span className={"badge " + (isAdd ? "bgrn" : "bred")} style={{marginLeft:6}}>{label}</span>
                   {p.adjDesc ? <span style={{fontSize:10,color:"#888",marginLeft:6}}>· {p.adjDesc}</span> : null}
                 </div>
                 <strong style={{color:col,fontFamily:"monospace"}}>{sign}€{fmtE(p.adjAmount)}</strong>
@@ -1292,16 +1299,17 @@ function SalaryTab({ data, persist, setModal, gSt }) {
               {prSorted.map(p => {
                 const st = gSt(p.staffId);
                 const ha = p.adjType && p.adjType !== "없음" && p.adjAmount > 0;
-                const ac = p.adjType === "차감" ? "#2ed573" : "#ff4757";
-                const as = p.adjType === "차감" ? "+" : "-";
+                const isAdd = p.adjType === "추가지급" || p.adjType === "추가";
+                const ac = isAdd ? "#20a060" : "#e63946";
+                const as = isAdd ? "+" : "-";
                 return (
                   <tr key={p.id}>
                     <td><span className="dot" style={{background:st?.color||"#666"}} />{st?.name||"?"}</td>
                     <td style={{fontWeight:600}}>{p.ym}</td>
                     <td className="mn">{p.hours||"—"}h</td>
-                    <td className="mn" style={{color:"#4ecdc4"}}>€{fmtE(p.amount)}</td>
-                    <td className="mn" style={{color:ha?ac:"#666"}}>{ha ? (as+"€"+fmtE(p.adjAmount)) : "—"}</td>
-                    <td style={{fontSize:11,color:"#ff6b35"}}>{ha ? nextYM(p.ym) : "—"}</td>
+                    <td className="mn" style={{color:"#1971c2"}}>€{fmtE(p.amount)}</td>
+                    <td className="mn" style={{color:ha?ac:"#888"}}>{ha ? (as+"€"+fmtE(p.adjAmount)) : "—"}</td>
+                    <td style={{fontSize:11,color:"#d94c1a"}}>{ha ? nextYM(p.ym) : "—"}</td>
                     <td>
                       <button className="btn bs sm" onClick={()=>setModal({type:"addPayroll", editRec:p, ym:p.ym})}>수정</button>
                       <button className="btn bd sm" style={{marginLeft:3}} onClick={async()=>await persist({...data, payrollRecords:(data.payrollRecords||[]).filter(r=>r.id!==p.id)})}>삭제</button>
