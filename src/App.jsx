@@ -1723,22 +1723,59 @@ function SalaryTab({ data, persist, setModal, gSt }) {
 }
 
 function SalesTab({ data, persist, setModal }) {
-  const [fd, setFd] = useState("");
-  let sales = [...(data.sales||[])].sort((a, b) => b.date.localeCompare(a.date));
-  if (fd) sales = sales.filter(s => s.date === fd);
+  const [salesYM, setSalesYM] = useState(curYM()); // 월별 필터
+  const [editingSk, setEditingSk] = useState(null); // 슈킹 빠른 편집 {date, value}
+
+  // 해당 월만 필터
+  let sales = [...(data.sales||[])]
+    .filter(s => s.date.startsWith(salesYM))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
   const T = {pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,sk:0};
   sales.forEach(r => Object.keys(T).forEach(k => { T[k] += (r[k]||0); }));
   const tot = Object.values(T).reduce((a, b) => a + b, 0);
   const rT = r => (r.pc||0)+(r.pk||0)+(r.mc||0)+(r.mk||0)+(r.ac||0)+(r.ak||0)+(r.nc||0)+(r.nk||0)+(r.jc||0)+(r.jk||0)+(r.sk||0);
-  const cell = v => v ? <span>{fmt(v)}</span> : <span style={{color:"#444"}}>-</span>;
+  const cell = v => v ? <span>{fmt(v)}</span> : <span style={{color:"#bbb"}}>-</span>;
+
+  // 슈킹 빠른 입력 저장
+  const saveSkuking = async (date, value) => {
+    const amt = parseFloat(value) || 0;
+    let newSales = [...(data.sales||[])];
+    const existing = newSales.find(s => s.date === date);
+    if (existing) {
+      newSales = newSales.map(s => s.date === date ? {...s, sk: amt} : s);
+    } else {
+      newSales.push({
+        id: nid(newSales),
+        date, pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,
+        sk: amt
+      });
+    }
+    await persist({...data, sales: newSales});
+    setEditingSk(null);
+  };
+
+  // 월 이동
+  const prevMonth = () => {
+    const [y, m] = salesYM.split("-").map(Number);
+    if (m === 1) setSalesYM(`${y-1}-12`);
+    else setSalesYM(`${y}-${String(m-1).padStart(2,"0")}`);
+  };
+  const nextMonth = () => {
+    const [y, m] = salesYM.split("-").map(Number);
+    if (m === 12) setSalesYM(`${y+1}-01`);
+    else setSalesYM(`${y}-${String(m+1).padStart(2,"0")}`);
+  };
 
   return (
     <div>
       <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
-        <input type="date" value={fd} onChange={e=>setFd(e.target.value)} style={{width:155}} />
+        <button className="btn bs sm" onClick={prevMonth}>◀</button>
+        <input type="month" value={salesYM} onChange={e=>setSalesYM(e.target.value)} style={{width:155}} />
+        <button className="btn bs sm" onClick={nextMonth}>▶</button>
         <button className="btn bp sm" onClick={()=>setModal({type:"addSales"})}>+ 직접입력</button>
         <button className="btn bg2 sm" onClick={()=>setModal({type:"csvImport"})}>📥 CSV 자동입력</button>
-        {fd ? <button className="btn bs sm" onClick={()=>setFd("")}>전체</button> : null}
+        <span style={{fontSize:11,color:"#888",marginLeft:4}}>{sales.length}건</span>
       </div>
       <div className="g4" style={{marginBottom:12}}>
         <div className="chip">
@@ -1774,6 +1811,14 @@ function SalesTab({ data, persist, setModal }) {
           <div className="vl">{fmt(tot)}</div>
         </div>
       </div>
+      <div className="card" style={{background:"rgba(255,212,0,.08)",border:"1px solid rgba(255,212,0,.4)",marginBottom:10}}>
+        <div style={{fontSize:11,color:"#b8860b",fontWeight:600,marginBottom:6}}>
+          🔒 슈킹 빠른 입력 — 표에서 슈킹 칸을 클릭해서 직접 입력하세요
+        </div>
+        <div style={{fontSize:10,color:"#888"}}>
+          • 매출이 없는 날에도 슈킹만 입력 가능 · 입력 후 자동 저장
+        </div>
+      </div>
       <div className="card" style={{overflowX:"auto"}}>
         <table className="tbl">
           <thead>
@@ -1785,7 +1830,7 @@ function SalesTab({ data, persist, setModal }) {
           </thead>
           <tbody>
             {sales.length === 0 ? (
-              <tr><td colSpan={14} style={{textAlign:"center",color:"#888",padding:16}}>없음</td></tr>
+              <tr><td colSpan={14} style={{textAlign:"center",color:"#888",padding:16}}>이 달 매출 없음</td></tr>
             ) : (
               sales.map(r => (
                 <tr key={r.id}>
@@ -1800,10 +1845,37 @@ function SalesTab({ data, persist, setModal }) {
                   <td className="mn" style={{fontSize:11}}>{cell(r.nk)}</td>
                   <td className="mn" style={{fontSize:11}}>{cell(r.jc)}</td>
                   <td className="mn" style={{fontSize:11}}>{cell(r.jk)}</td>
-                  <td className="mn" style={{color:"#888",fontSize:11}}>{r.sk ? fmt(r.sk) : <span style={{color:"#444"}}>-</span>}</td>
-                  <td className="mn" style={{fontWeight:700,color:"#f5c518"}}>{fmt(rT(r))}</td>
+                  <td
+                    className="mn"
+                    style={{
+                      color:"#b8860b",
+                      fontSize:11,
+                      background: editingSk?.date === r.date ? "rgba(255,212,0,.2)" : "rgba(255,212,0,.08)",
+                      cursor:"pointer",
+                      fontWeight:600
+                    }}
+                    onClick={()=>setEditingSk({date:r.date, value: r.sk || 0})}>
+                    {editingSk?.date === r.date ? (
+                      <input
+                        type="number"
+                        autoFocus
+                        value={editingSk.value}
+                        onChange={e=>setEditingSk({...editingSk, value:e.target.value})}
+                        onBlur={()=>saveSkuking(r.date, editingSk.value)}
+                        onKeyDown={e=>{
+                          if (e.key === "Enter") saveSkuking(r.date, editingSk.value);
+                          else if (e.key === "Escape") setEditingSk(null);
+                        }}
+                        style={{width:60,padding:"2px 4px",fontSize:11}}
+                      />
+                    ) : (r.sk ? fmt(r.sk) : <span style={{color:"#aaa"}}>+ 입력</span>)}
+                  </td>
+                  <td className="mn" style={{fontWeight:700,color:"#1971c2"}}>{fmt(rT(r))}</td>
                   <td>
-                    <button className="btn bd sm" onClick={async()=>await persist({...data, sales:(data.sales||[]).filter(s=>s.id!==r.id)})}>삭제</button>
+                    <button className="btn bd sm" onClick={async()=>{
+                      if(!confirm(r.date + " 매출 전체 삭제?")) return;
+                      await persist({...data, sales:(data.sales||[]).filter(s=>s.id!==r.id)});
+                    }}>삭제</button>
                   </td>
                 </tr>
               ))
@@ -2416,26 +2488,25 @@ export default function App() {
   // 단, 사용자가 입력 중이거나 모달이 열려있을 때는 폴링 정지
   useEffect(() => {
     const interval = setInterval(async () => {
-      // 1. 저장 중 또는 방금 저장한 경우 (10초 이내)
-      if (SAVING || (Date.now() - LAST_SAVE_AT < 10000)) return;
+      // 1. 저장 중 또는 방금 저장한 경우 (30초 이내)
+      if (SAVING || (Date.now() - LAST_SAVE_AT < 30000)) return;
       // 2. 모달이 열려있을 때
       if (modal !== null) return;
-      // 3. input/textarea/select에 포커스 있을 때
+      // 3. input/textarea/select/button에 포커스 있을 때
       const active = document.activeElement;
       if (active && (
         active.tagName === "INPUT" ||
         active.tagName === "TEXTAREA" ||
         active.tagName === "SELECT" ||
-        active.tagName === "BUTTON"  // 버튼에 포커스 있을 때도 폴링 안 함
+        active.tagName === "BUTTON"
       )) return;
       // 4. 페이지가 백그라운드일 때
       if (document.hidden) return;
-      // 5. 마우스가 페이지에서 움직이는 중이면 잠시 대기 (사용자가 클릭 중일 가능성)
-      if (Date.now() - LAST_USER_INTERACTION < 3000) return;
+      // 5. 사용자가 최근 30초 이내에 무언가 했으면 정지 (입력/클릭/스크롤)
+      if (Date.now() - LAST_USER_INTERACTION < 30000) return;
 
       try {
         const d = await loadData();
-        // 데이터가 실제로 바뀌었을 때만 setData (불필요한 리렌더링 방지)
         if (d) {
           const newJson = JSON.stringify(d);
           if (newJson !== LAST_SYNCED_JSON) {
@@ -2446,21 +2517,44 @@ export default function App() {
         setStorageMode(STORAGE_MODE);
         setLastError(LAST_ERROR);
       } catch(e) {}
-    }, 10000); // 8초 → 10초로 더 늘림
+    }, 60000); // 60초마다 체크 (그러나 위 조건들 때문에 실제 가져오는 건 더 드물게)
     return () => clearInterval(interval);
   }, [modal]);
 
-  // 사용자 상호작용 추적
+  // 사용자 상호작용 추적 (마우스/키보드/스크롤/터치 모두)
   useEffect(() => {
     const update = () => { LAST_USER_INTERACTION = Date.now(); };
     window.addEventListener("click", update);
     window.addEventListener("touchstart", update);
     window.addEventListener("mousemove", update);
+    window.addEventListener("keydown", update);
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("input", update, true);
     return () => {
       window.removeEventListener("click", update);
       window.removeEventListener("touchstart", update);
       window.removeEventListener("mousemove", update);
+      window.removeEventListener("keydown", update);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("input", update, true);
     };
+  }, []);
+
+  // 수동 새로고침 (다른 사람이 입력한 거 빨리 보고 싶을 때)
+  const manualRefresh = useCallback(async () => {
+    try {
+      const d = await loadData();
+      if (d) {
+        LAST_SYNCED_JSON = JSON.stringify(d);
+        setData(d);
+        setStorageMode(STORAGE_MODE);
+      }
+      setToast("🔄 동기화 완료");
+      setTimeout(() => setToast(""), 2000);
+    } catch(e) {
+      setToast("⚠️ 동기화 실패");
+      setTimeout(() => setToast(""), 2000);
+    }
   }, []);
 
   const persist = useCallback(async (nd) => {
@@ -2879,6 +2973,7 @@ export default function App() {
               }}>
               {storageMode==="shared" ? "🟢 공유됨" : storageMode==="local" ? "🔴 로컬만" : "⚪ 연결중"}
             </span>
+            <button className="btn bs sm" onClick={manualRefresh} title="새로고침">🔄</button>
             <button className="btn bs sm" onClick={()=>setModal({type:"pin"})}>🔐 관리자</button>
           </div>
         </div>
@@ -2956,71 +3051,114 @@ export default function App() {
               <div className="card">
                 <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📌 내 이번달 스케줄</div>
                 {(() => {
-                  // 이번달 내 시간/급여 계산
                   const me = gSt(svSid);
                   const wage = me?.wage || 0;
-                  let totalH = 0;
-                  myS.forEach(s => { totalH += shiftHours(s); });
-                  const expectedPay = totalH * wage;
 
-                  // 다음 달 조정 확인 (지난달 기록에서 이번달에 반영될 것)
+                  // 월별 급여 계산 함수
+                  const calcMonthSalary = (ym) => {
+                    const monthShifts = (data.shifts||[]).filter(s =>
+                      s.staffId === svSid && s.date.startsWith(ym)
+                    );
+                    let h = 0;
+                    monthShifts.forEach(s => { h += shiftHours(s); });
+                    const basePay = h * wage;
+
+                    // 지난달의 조정이 이 달에 반영
+                    const adj = (data.payrollRecords||[]).find(p =>
+                      p.staffId === svSid &&
+                      p.adjType && p.adjType !== "없음" &&
+                      p.adjAmount > 0 &&
+                      nextYM(p.ym) === ym
+                    );
+                    const isAdd = adj && (adj.adjType === "추가지급" || adj.adjType === "추가");
+                    const adjAmt = adj ? adj.adjAmount : 0;
+                    const finalPay = adj ? (isAdd ? basePay + adjAmt : basePay - adjAmt) : basePay;
+
+                    const payment = (data.payments||[]).find(p =>
+                      p.staffId === svSid && p.ym === ym
+                    );
+
+                    return {
+                      ym, hours: h, basePay, finalPay,
+                      adjustment: adj ? {isAdd, amount: adjAmt, desc: adj.adjDesc} : null,
+                      payment,
+                      isPaid: payment && payment.paid,
+                      shiftCount: monthShifts.length
+                    };
+                  };
+
+                  // 이전달, 이번달, 다음달
                   const ymNow = curYM();
-                  const adjustment = (data.payrollRecords||[]).find(p =>
-                    p.staffId === svSid &&
-                    p.adjType && p.adjType !== "없음" &&
-                    p.adjAmount > 0 &&
-                    nextYM(p.ym) === ymNow
-                  );
-                  const isAdd = adjustment && (adjustment.adjType === "추가지급" || adjustment.adjType === "추가");
-                  const adjAmount = adjustment ? adjustment.adjAmount : 0;
-                  const finalPay = isAdd ? expectedPay + adjAmount : (adjustment ? expectedPay - adjAmount : expectedPay);
+                  const [yN, mN] = ymNow.split("-").map(Number);
+                  const ymPrev = mN === 1 ? `${yN-1}-12` : `${yN}-${String(mN-1).padStart(2,"0")}`;
+                  const ymNext = mN === 12 ? `${yN+1}-01` : `${yN}-${String(mN+1).padStart(2,"0")}`;
 
-                  // 이번 달 지급 기록
-                  const payment = (data.payments||[]).find(p => p.staffId===svSid && p.ym===ymNow);
-                  const isPaid = payment && payment.paid;
+                  const months = [
+                    { label: "지난달", ym: ymPrev, color: "#888" },
+                    { label: "이번달", ym: ymNow, color: "#1971c2", main: true },
+                    { label: "다음달 (예정)", ym: ymNext, color: "#7950f2" }
+                  ];
+
+                  const monthsData = months.map(m => ({ ...m, ...calcMonthSalary(m.ym) }));
 
                   return (
-                    <div style={{
-                      background: "linear-gradient(135deg, rgba(77,171,247,.12), rgba(165,94,234,.1))",
-                      border: "1.5px solid #4dabf7",
-                      borderRadius: 10,
-                      padding: "12px 14px",
-                      marginBottom: 12
-                    }}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                        <span style={{fontSize:11,color:"#1971c2",fontWeight:600}}>💰 내 예상 급여 ({ymNow})</span>
-                        {isPaid ? (
-                          <span className="badge bgrn">✓ 지급됨 {payment.paidDate || ""}</span>
-                        ) : (
-                          <span className="badge bred">미지급</span>
-                        )}
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,color:"#666",fontWeight:600,marginBottom:8}}>
+                        💰 내 급여 (시급 €{fmtE(wage)}/h)
                       </div>
-                      <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:6}}>
-                        <span style={{fontSize:24,fontWeight:700,color:"#1971c2",fontFamily:"'Space Mono', monospace"}}>
-                          €{fmtE(finalPay)}
-                        </span>
-                        <span style={{fontSize:11,color:"#666"}}>
-                          ({totalH}h × €{fmtE(wage)}/h)
-                        </span>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1.5fr 1fr",gap:8}}>
+                        {monthsData.map(m => (
+                          <div key={m.ym} style={{
+                            background: m.main ? "linear-gradient(135deg, rgba(77,171,247,.15), rgba(165,94,234,.1))" : "#f8f9fa",
+                            border: m.main ? `2px solid ${m.color}` : `1px solid #e0e0e0`,
+                            borderRadius: 10,
+                            padding: m.main ? "12px 12px" : "10px 10px"
+                          }}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                              <span style={{fontSize:10,color:m.color,fontWeight:700}}>{m.label}</span>
+                              {m.isPaid ? (
+                                <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"rgba(46,213,115,.2)",color:"#20a060",fontWeight:700}}>✓지급</span>
+                              ) : m.shiftCount > 0 ? (
+                                <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"rgba(255,71,87,.15)",color:"#e63946",fontWeight:700}}>미지급</span>
+                              ) : null}
+                            </div>
+                            <div style={{fontSize:9,color:"#888",marginBottom:3}}>{m.ym}</div>
+                            <div style={{
+                              fontSize: m.main ? 22 : 16,
+                              fontWeight: 700,
+                              color: m.color,
+                              fontFamily: "'Space Mono', monospace",
+                              lineHeight: 1.1
+                            }}>
+                              €{fmtE(m.finalPay)}
+                            </div>
+                            <div style={{fontSize:10,color:"#666",marginTop:4}}>
+                              {m.hours}h · {m.shiftCount}회
+                            </div>
+                            {m.adjustment ? (
+                              <div style={{
+                                fontSize: 10,
+                                color: m.adjustment.isAdd ? "#20a060" : "#e63946",
+                                marginTop: 5,
+                                padding: "3px 5px",
+                                background: "#fff",
+                                borderRadius: 3,
+                                fontWeight: 600
+                              }}>
+                                {m.adjustment.isAdd ? "+" : "-"}€{fmtE(m.adjustment.amount)} 조정
+                              </div>
+                            ) : null}
+                            {m.isPaid && m.payment.method ? (
+                              <div style={{fontSize:9,color:"#666",marginTop:3}}>
+                                {m.payment.method} · {m.payment.paidDate || ""}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
                       </div>
-                      {adjustment ? (
-                        <div style={{
-                          fontSize:11,
-                          color: isAdd ? "#20a060" : "#e63946",
-                          background: "#fff",
-                          borderRadius:5,
-                          padding:"5px 8px",
-                          marginTop:5
-                        }}>
-                          {isAdd ? "➕ 지난달 추가지급" : "➖ 지난달 차감"} {isAdd ? "+" : "-"}€{fmtE(adjAmount)}
-                          {adjustment.adjDesc ? <span style={{color:"#888",marginLeft:4}}>· {adjustment.adjDesc}</span> : null}
-                        </div>
-                      ) : null}
-                      {isPaid && payment.method ? (
-                        <div style={{fontSize:11,color:"#666",marginTop:4}}>
-                          방법: {payment.method} · 실제 €{fmtE(payment.amount || finalPay)}
-                        </div>
-                      ) : null}
+                      <div style={{fontSize:9,color:"#aaa",marginTop:6,textAlign:"center"}}>
+                        💡 다음달은 현재까지 등록된 스케줄 기준 예상치입니다
+                      </div>
                     </div>
                   );
                 })()}
@@ -3394,16 +3532,21 @@ export default function App() {
               ))}
             </div>
             <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-              <span style={{
-                fontSize:10,
-                padding:"3px 7px",
-                borderRadius:10,
-                background: storageMode==="shared" ? "rgba(46,213,115,.15)" : storageMode==="local" ? "rgba(255,71,87,.15)" : "rgba(255,255,255,.08)",
-                color: storageMode==="shared" ? "#2ed573" : storageMode==="local" ? "#ff4757" : "#aaa",
-                fontWeight:600
-              }}>
+              <span
+                onClick={manualRefresh}
+                title="클릭하면 즉시 동기화"
+                style={{
+                  fontSize:10,
+                  padding:"3px 7px",
+                  borderRadius:10,
+                  background: storageMode==="shared" ? "rgba(46,213,115,.15)" : storageMode==="local" ? "rgba(255,71,87,.15)" : "rgba(255,255,255,.08)",
+                  color: storageMode==="shared" ? "#2ed573" : storageMode==="local" ? "#ff4757" : "#aaa",
+                  fontWeight:600,
+                  cursor:"pointer"
+                }}>
                 {storageMode==="shared" ? "🟢" : storageMode==="local" ? "🔴" : "⚪"}
               </span>
+              <button className="btn bs sm" onClick={manualRefresh} title="새로고침">🔄</button>
               <button className="btn bs sm" onClick={()=>setMode("staff")}>🔒</button>
             </div>
           </div>
