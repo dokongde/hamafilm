@@ -78,6 +78,8 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbw48A5z_PANeJWD-GRZbNc0
 
 let STORAGE_MODE = "loading";
 let LAST_ERROR = "";
+let SAVING = false;       // 저장 중인지
+let LAST_SAVE_AT = 0;     // 마지막 저장 시각 (ms)
 
 async function loadData(){
   try {
@@ -106,6 +108,7 @@ async function loadData(){
 }
 
 async function saveData(d){
+  SAVING = true;
   try {
     const existing = await fetchAll();
     existing[STORE_KEY] = d;
@@ -113,11 +116,14 @@ async function saveData(d){
     const res = await fetch(GAS_URL + "?save=" + payload, { method: "GET", redirect: "follow" });
     if (res.ok) {
       STORAGE_MODE = "shared";
+      LAST_SAVE_AT = Date.now();
       try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
       return;
     }
   } catch(e) {
     console.error("GAS save error", e);
+  } finally {
+    SAVING = false;
   }
   try {
     STORAGE_MODE = "local";
@@ -1070,6 +1076,8 @@ export default function App() {
   // 다른 사용자가 변경한 데이터를 주기적으로 가져옴 (실시간 동기화)
   useEffect(() => {
     const interval = setInterval(async () => {
+      // 저장 중이거나 방금(10초 이내) 저장했다면 폴링 스킵 — 옛 데이터로 덮어쓰기 방지
+      if (SAVING || (Date.now() - LAST_SAVE_AT < 10000)) return;
       try {
         const d = await loadData();
         if (d) setData(d);
