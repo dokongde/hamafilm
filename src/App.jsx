@@ -557,14 +557,16 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
   const [phone, setPhone] = useState(ed?.phone || "");
   const [wage, setWage] = useState(ed?.wage || 14);
   const [color, setColor] = useState(ed?.color || "#5352ed");
+  const [pin, setPin] = useState(ed?.pin || "");
   const colors = ["#5352ed","#ff6b35","#4ecdc4","#f5c518","#ff4757","#2ed573","#a55eea","#ff6b9d","#00d2d3","#ff9ff3"];
   const save = async () => {
     if (!name) { toast("이름 입력"); return; }
+    if (pin && !/^\d{4}$/.test(pin)) { toast("PIN은 4자리 숫자"); return; }
     let nd;
     if (ed) {
-      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color} : s)};
+      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color, pin} : s)};
     } else {
-      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color}]};
+      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color, pin}]};
     }
     await persist(nd);
     close();
@@ -593,8 +595,25 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
             <label>색상</label>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
               {colors.map(c => (
-                <div key={c} onClick={()=>setColor(c)} style={{width:22,height:22,borderRadius:"50%",background:c,cursor:"pointer",border: color===c ? "2px solid #f5c518" : "2px solid transparent"}} />
+                <div key={c} onClick={()=>setColor(c)} style={{width:22,height:22,borderRadius:"50%",background:c,cursor:"pointer",border: color===c ? "2px solid #4dabf7" : "2px solid transparent"}} />
               ))}
+            </div>
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>🔒 개인 PIN (4자리, 선택사항)</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              value={pin}
+              onChange={e=>setPin(e.target.value.replace(/[^0-9]/g, ""))}
+              placeholder="공란이면 PIN 없음"
+              style={{fontFamily:"monospace",letterSpacing:4,textAlign:"center"}}
+            />
+            <div style={{fontSize:10,color:"#888",marginTop:3}}>
+              💡 PIN 설정 시: 본인 이름 클릭하면 PIN 입력 필요
             </div>
           </div>
         </div>
@@ -2058,6 +2077,17 @@ export default function App() {
       setPin(p);
       setStorageMode(STORAGE_MODE);
       setLastError(LAST_ERROR);
+
+      // URL ?admin=PIN 으로 관리자 직접 진입
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const adminPin = params.get("admin");
+        if (adminPin && adminPin === p) {
+          setMode("admin");
+          // URL에서 PIN 제거 (보안 - 화면에 안 보이게)
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+      } catch(e) {}
     })();
   }, []);
 
@@ -2538,9 +2568,21 @@ export default function App() {
               <div style={{fontSize:12,color:"#888",marginBottom:14}}>이름을 선택하세요.</div>
               <div className="spc">
                 {(data.staff||[]).map(s => (
-                  <div key={s.id} className="sc" onClick={()=>{setSvSid(s.id); setSvDate(todayStr()); setSvSel(null);}}>
+                  <div key={s.id} className="sc" onClick={()=>{
+                    if (s.pin) {
+                      // PIN 설정된 경우 → PIN 입력 모달
+                      setModal({type:"staffPin", staffId: s.id});
+                    } else {
+                      setSvSid(s.id);
+                      setSvDate(todayStr());
+                      setSvSel(null);
+                    }
+                  }}>
                     <div className="sav" style={{background:s.color}}>{s.name.slice(0, 1)}</div>
-                    <div className="snm">{s.name}</div>
+                    <div className="snm">
+                      {s.name}
+                      {s.pin ? <span style={{fontSize:9,marginLeft:3,color:"#888"}}>🔒</span> : null}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2889,6 +2931,60 @@ export default function App() {
                 <button key={d} className="pb2" onClick={()=>doPinInput(String(d))}>{d}</button>
               ))}
               <button className="pb2" onClick={()=>doPinInput("0")} style={{gridColumn:2}}>0</button>
+              <button className="pb2" style={{fontSize:14,color:"#888"}} onClick={()=>setPinBuf(b => b.slice(0, -1))}>⌫</button>
+            </div>
+            <button style={{background:"none",border:"none",color:"#888",fontSize:12,cursor:"pointer"}} onClick={()=>{closeModal(); setPinBuf(""); setPinErr("");}}>취소</button>
+          </div>
+        </div>
+      );
+    }
+
+    if (modal.type === "staffPin") {
+      const targetStaff = (data.staff||[]).find(s => s.id === modal.staffId);
+      const doStaffPinInput = (d) => {
+        if (pinBuf.length >= 4) return;
+        const newBuf = pinBuf + d;
+        setPinBuf(newBuf);
+        setPinErr("");
+        if (newBuf.length === 4) {
+          if (targetStaff && newBuf === targetStaff.pin) {
+            // 성공
+            setSvSid(targetStaff.id);
+            setSvDate(todayStr());
+            setSvSel(null);
+            closeModal();
+            setPinBuf("");
+          } else {
+            setPinErr("PIN이 틀렸습니다");
+            setTimeout(() => setPinBuf(""), 600);
+          }
+        }
+      };
+      return (
+        <div className="ov" onClick={e => {
+          if (e.target === e.currentTarget) {
+            closeModal();
+            setPinBuf("");
+            setPinErr("");
+          }
+        }}>
+          <div className="pb">
+            <div className="sav" style={{background:targetStaff?.color || "#4dabf7", margin:"0 auto 8px"}}>
+              {targetStaff?.name?.slice(0,1) || "?"}
+            </div>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>{targetStaff?.name} 님</div>
+            <div style={{fontSize:12,color:"#888",marginBottom:18}}>PIN을 입력하세요</div>
+            <div className="pds">
+              {[0,1,2,3].map(i => (
+                <div key={i} className={"pde" + (i < pinBuf.length ? " f" : "")} />
+              ))}
+            </div>
+            {pinErr ? <div style={{color:"#e63946",fontSize:12,marginBottom:8}}>{pinErr}</div> : null}
+            <div className="ppd">
+              {[1,2,3,4,5,6,7,8,9].map(d => (
+                <button key={d} className="pb2" onClick={()=>doStaffPinInput(String(d))}>{d}</button>
+              ))}
+              <button className="pb2" onClick={()=>doStaffPinInput("0")} style={{gridColumn:2}}>0</button>
               <button className="pb2" style={{fontSize:14,color:"#888"}} onClick={()=>setPinBuf(b => b.slice(0, -1))}>⌫</button>
             </div>
             <button style={{background:"none",border:"none",color:"#888",fontSize:12,cursor:"pointer"}} onClick={()=>{closeModal(); setPinBuf(""); setPinErr("");}}>취소</button>
