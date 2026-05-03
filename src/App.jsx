@@ -1158,17 +1158,18 @@ function SalaryTab({ data, persist, setModal, gSt }) {
       </div>
       {pending.length > 0 ? (
         <div style={{borderRadius:9,padding:"12px 14px",marginBottom:12,background:"rgba(255,107,53,.12)",border:"1px solid rgba(255,107,53,.4)"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#ff6b35",marginBottom:7}}>⚠️ 이번달 반영할 조정금액!</div>
+          <div style={{fontSize:12,fontWeight:700,color:"#d94c1a",marginBottom:7}}>⚠️ 이번달 반영할 조정금액!</div>
           {pending.map(p => {
             const st = gSt(p.staffId);
             const sign = p.adjType === "차감" ? "+" : "-";
-            const col = p.adjType === "차감" ? "#2ed573" : "#ff4757";
+            const col = p.adjType === "차감" ? "#20a060" : "#e63946";
             return (
-              <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,.2)",borderRadius:6,padding:"6px 10px",marginBottom:5}}>
-                <div>
+              <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fff",border:"1px solid #ffd4bb",borderRadius:6,padding:"7px 10px",marginBottom:5}}>
+                <div style={{color:"#1a1a1a"}}>
                   <span className="dot" style={{background:st?.color||"#666"}} />
-                  <strong>{st?.name||"?"}</strong>
+                  <strong style={{color:"#1a1a1a"}}>{st?.name||"?"}</strong>
                   <span className={"badge " + (p.adjType==="차감" ? "bgrn" : "bred")} style={{marginLeft:6}}>{p.adjType}</span>
+                  {p.adjDesc ? <span style={{fontSize:10,color:"#888",marginLeft:6}}>· {p.adjDesc}</span> : null}
                 </div>
                 <strong style={{color:col,fontFamily:"monospace"}}>{sign}€{fmtE(p.adjAmount)}</strong>
               </div>
