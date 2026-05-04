@@ -346,6 +346,140 @@ function PinChange({ pin, setPin }) {
   );
 }
 
+// 시프트 수정 모달 (관리자용 — 시간/실제출퇴근/메모 조정)
+function EditShiftModal({ modal, data, persist, close, toast, gSt }) {
+  const sh = modal.shift;
+  const [start, setStart] = useState(sh.start || "");
+  const [end, setEnd] = useState(sh.end || "");
+  const [hours, setHours] = useState(sh.hours || 0);
+  const [actualStart, setActualStart] = useState(sh.actualStart || "");
+  const [actualEnd, setActualEnd] = useState(sh.actualEnd || "");
+  const [memo, setMemo] = useState(sh.memo || "");
+  const [autoCalc, setAutoCalc] = useState(true); // 시간 자동계산
+
+  // 자동 계산
+  useEffect(() => {
+    if (autoCalc && start && end) {
+      const [sh1, sm1] = start.split(":").map(Number);
+      const [eh1, em1] = end.split(":").map(Number);
+      const h = ((eh1*60+em1) - (sh1*60+sm1)) / 60;
+      if (h > 0) setHours(h);
+    }
+  }, [start, end, autoCalc]);
+
+  const st = gSt(sh.staffId);
+  const pay = (parseFloat(hours) || 0) * (st?.wage || 0);
+
+  const save = async () => {
+    if (!start || !end) { toast("시간 입력"); return; }
+    const newShifts = (data.shifts||[]).map(x =>
+      x.id === sh.id ? {...x,
+        start, end,
+        hours: parseFloat(hours) || 0,
+        actualStart: actualStart || null,
+        actualEnd: actualEnd || null,
+        memo
+      } : x
+    );
+    await persist({...data, shifts: newShifts});
+    close();
+    toast("✅ 수정 완료");
+  };
+
+  const remove = async () => {
+    if (!confirm("이 스케줄 삭제?")) return;
+    await persist({...data, shifts: (data.shifts||[]).filter(x => x.id !== sh.id)});
+    close();
+    toast("삭제됨");
+  };
+
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>스케줄 수정</h3>
+        <div style={{background:"#f5f5f7",borderRadius:7,padding:"8px 11px",fontSize:12,marginBottom:10}}>
+          <span className="dot" style={{background:st?.color||"#666"}} />
+          <strong>{st?.name}</strong> · {sh.date} · <span className={"badge " + (sh.slotType === "오프닝" ? "bylw" : "bgrn")}>{sh.slotType}</span>
+        </div>
+
+        <div style={{fontSize:11,fontWeight:700,color:"#1971c2",marginTop:8,marginBottom:6}}>📅 예정 시간 (급여 계산용)</div>
+        <div className="fr fc2">
+          <div>
+            <label>시작</label>
+            <input type="time" value={start} onChange={e=>setStart(e.target.value)} />
+          </div>
+          <div>
+            <label>종료</label>
+            <input type="time" value={end} onChange={e=>setEnd(e.target.value)} />
+          </div>
+        </div>
+        <div className="fr fc2">
+          <div>
+            <label>시간(h) {autoCalc ? "(자동)" : "(수동)"}</label>
+            <input
+              type="number"
+              step="0.5"
+              value={hours}
+              onChange={e=>{setAutoCalc(false); setHours(e.target.value);}}
+              style={{
+                background: !autoCalc ? "rgba(255,212,0,.1)" : ""
+              }}
+            />
+          </div>
+          <div style={{display:"flex",alignItems:"flex-end"}}>
+            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,marginBottom:8,cursor:"pointer"}}>
+              <input
+                type="checkbox"
+                checked={autoCalc}
+                onChange={e=>setAutoCalc(e.target.checked)}
+                style={{width:"auto"}}
+              />
+              자동 계산
+            </label>
+          </div>
+        </div>
+        <div style={{fontSize:11,color:"#888",marginBottom:10,padding:"6px 8px",background:"rgba(77,171,247,.08)",borderRadius:5}}>
+          💡 자동 계산 끄면 30분 추가 같은 수동 조정 가능
+        </div>
+
+        <div style={{fontSize:11,fontWeight:700,color:"#7950f2",marginTop:8,marginBottom:6}}>⏱️ 실제 출퇴근 (선택)</div>
+        <div className="fr fc2">
+          <div>
+            <label>실제 출근</label>
+            <input type="time" value={actualStart} onChange={e=>setActualStart(e.target.value)} />
+          </div>
+          <div>
+            <label>실제 퇴근</label>
+            <input type="time" value={actualEnd} onChange={e=>setActualEnd(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="fr">
+          <div>
+            <label>메모</label>
+            <input value={memo} onChange={e=>setMemo(e.target.value)} placeholder="예: 30분 추가 근무" />
+          </div>
+        </div>
+
+        <div style={{background:"linear-gradient(135deg, rgba(77,171,247,.12), rgba(165,94,234,.1))",border:"1px solid #4dabf7",borderRadius:7,padding:"10px 12px",fontSize:12,marginTop:10}}>
+          <div style={{display:"flex",justifyContent:"space-between"}}>
+            <span>예상 급여</span>
+            <strong style={{color:"#1971c2",fontFamily:"monospace"}}>
+              €{fmtE(pay)} <span style={{fontSize:10,color:"#888"}}>({hours}h × €{fmtE(st?.wage || 0)})</span>
+            </strong>
+          </div>
+        </div>
+
+        <div className="mf">
+          <button className="btn bd" onClick={remove}>삭제</button>
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AddShiftModal({ modal, data, persist, close, toast, gSt, isVac, vacName }) {
   const [sid, setSid] = useState(data.staff[0]?.id || 1);
   const [date, setDate] = useState(modal.date || todayStr());
@@ -1378,7 +1512,11 @@ function HistoricalModal({ modal, data, persist, close, toast }) {
 function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
   const existing = (data.payments||[]).find(p => p.staffId===modal.staffId && p.ym===modal.ym);
   const st = gSt(modal.staffId);
-  const [paid, setPaid] = useState(existing?.paid !== undefined ? existing.paid : true);
+  // 상태: "none"(미지급) | "ready"(준비완료) | "paid"(지급완료)
+  const initStatus = existing
+    ? (existing.status || (existing.paid ? "paid" : "none"))
+    : "none";
+  const [status, setStatus] = useState(initStatus);
   const [paidDate, setPaidDate] = useState(existing?.paidDate || todayStr());
   const [method, setMethod] = useState(existing?.method || "회사통장");
   const [amount, setAmount] = useState(existing?.amount || modal.defaultAmount || 0);
@@ -1389,11 +1527,12 @@ function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
       id: existing?.id || nid(data.payments||[]),
       staffId: modal.staffId,
       ym: modal.ym,
-      paid: paid,
-      paidDate: paid ? paidDate : "",
-      method: paid ? method : "",
+      status,
+      paid: status === "paid", // 호환성 유지
+      paidDate: status === "paid" ? paidDate : "",
+      method: status === "paid" ? method : (status === "ready" ? method : ""),
       amount: parseFloat(amount) || 0,
-      memo: memo,
+      memo,
       savedAt: new Date().toISOString()
     };
     let nd;
@@ -1404,7 +1543,8 @@ function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
     }
     await persist(nd);
     close();
-    toast(paid ? "✅ 지급 처리됨" : "미지급으로 변경");
+    const msgs = {none:"미지급으로 변경", ready:"📦 준비완료!", paid:"✅ 지급완료!"};
+    toast(msgs[status]);
   };
 
   const remove = async () => {
@@ -1448,44 +1588,68 @@ function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
           )}
         </div>
 
-        {/* 지급 / 미지급 토글 */}
-        <div style={{display:"flex",gap:8,marginBottom:14}}>
+        {/* 3단계 상태 버튼 */}
+        <div style={{display:"flex",gap:6,marginBottom:14}}>
           <button
             className="btn"
-            onClick={()=>setPaid(true)}
+            onClick={()=>setStatus("none")}
             style={{
               flex:1,
-              background: paid ? "#2ed573" : "#f5f5f7",
-              color: paid ? "#fff" : "#888",
-              border: paid ? "none" : "1px solid #d0d0d0",
-              padding:"10px"
-            }}>
-            ✓ 지급함
-          </button>
-          <button
-            className="btn"
-            onClick={()=>setPaid(false)}
-            style={{
-              flex:1,
-              background: !paid ? "#e63946" : "#f5f5f7",
-              color: !paid ? "#fff" : "#888",
-              border: !paid ? "none" : "1px solid #d0d0d0",
-              padding:"10px"
+              background: status === "none" ? "#e63946" : "#f5f5f7",
+              color: status === "none" ? "#fff" : "#888",
+              border: status === "none" ? "none" : "1px solid #d0d0d0",
+              padding:"9px",
+              fontSize:11
             }}>
             ✗ 미지급
           </button>
+          <button
+            className="btn"
+            onClick={()=>setStatus("ready")}
+            style={{
+              flex:1,
+              background: status === "ready" ? "#f5c518" : "#f5f5f7",
+              color: status === "ready" ? "#000" : "#888",
+              border: status === "ready" ? "none" : "1px solid #d0d0d0",
+              padding:"9px",
+              fontSize:11
+            }}>
+            📦 준비완료
+          </button>
+          <button
+            className="btn"
+            onClick={()=>setStatus("paid")}
+            style={{
+              flex:1,
+              background: status === "paid" ? "#2ed573" : "#f5f5f7",
+              color: status === "paid" ? "#fff" : "#888",
+              border: status === "paid" ? "none" : "1px solid #d0d0d0",
+              padding:"9px",
+              fontSize:11
+            }}>
+            ✓ 지급완료
+          </button>
         </div>
 
-        {/* 지급 정보 (지급함일 때만) */}
-        {paid ? (
+        {/* 안내 문구 */}
+        {status === "ready" ? (
+          <div style={{fontSize:11,color:"#b8860b",background:"rgba(245,197,24,.12)",padding:"7px 9px",borderRadius:5,marginBottom:10}}>
+            💡 직원에게 "준비완료"로 보입니다. 직원이 받았다고 표시할 수 있어요.
+          </div>
+        ) : null}
+
+        {/* 지급 정보 입력 (준비완료 또는 지급완료) */}
+        {status !== "none" ? (
           <>
             <div className="fr fc2">
+              {status === "paid" ? (
+                <div>
+                  <label>지급일</label>
+                  <input type="date" value={paidDate} onChange={e=>setPaidDate(e.target.value)} />
+                </div>
+              ) : null}
               <div>
-                <label>지급일</label>
-                <input type="date" value={paidDate} onChange={e=>setPaidDate(e.target.value)} />
-              </div>
-              <div>
-                <label>지급 방법</label>
+                <label>{status === "paid" ? "지급 방법" : "지급 예정 방법"}</label>
                 <select value={method} onChange={e=>setMethod(e.target.value)}>
                   <option value="회사통장">🏦 회사통장</option>
                   <option value="현금">💵 현금</option>
@@ -1496,7 +1660,7 @@ function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
             </div>
             <div className="fr">
               <div>
-                <label>실제 지급액 (€)</label>
+                <label>{status === "paid" ? "실제 지급액 (€)" : "예정 금액 (€)"}</label>
                 <input type="number" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} />
               </div>
             </div>
@@ -1618,11 +1782,15 @@ function SalaryTab({ data, persist, setModal, gSt }) {
           <span>💰 {salYM} 지급 관리</span>
           <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>
             {(() => {
-              const paidCnt = rows.filter(r => {
+              let paidCnt = 0, readyCnt = 0;
+              rows.forEach(r => {
                 const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
-                return pay && pay.paid;
-              }).length;
-              return `지급완료 ${paidCnt}/${rows.length}`;
+                if (!pay) return;
+                const status = pay.status || (pay.paid ? "paid" : "none");
+                if (status === "paid") paidCnt++;
+                else if (status === "ready") readyCnt++;
+              });
+              return `✓${paidCnt}  📦${readyCnt}  /${rows.length}`;
             })()}
           </span>
         </div>
@@ -1643,7 +1811,9 @@ function SalaryTab({ data, persist, setModal, gSt }) {
             <tbody>
               {rows.map(r => {
                 const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
-                const paid = pay && pay.paid;
+                const status = pay ? (pay.status || (pay.paid ? "paid" : "none")) : "none";
+                const paid = status === "paid";
+                const ready = status === "ready";
                 // 지난달 조정이 이번달에 반영될 것 찾기
                 const adjustment = (data.payrollRecords||[]).find(p =>
                   p.staffId === r.st.id &&
@@ -1653,7 +1823,6 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                 );
                 const isAdd = adjustment && (adjustment.adjType === "추가지급" || adjustment.adjType === "추가");
                 const adjAmt = adjustment ? adjustment.adjAmount : 0;
-                // 조정 반영 후 최종 지급액
                 const finalPay = adjustment
                   ? (isAdd ? r.pay + adjAmt : r.pay - adjAmt)
                   : r.pay;
@@ -1689,6 +1858,8 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                     <td>
                       {paid ? (
                         <span className="badge bgrn">✓ 지급완료</span>
+                      ) : ready ? (
+                        <span className="badge bylw">📦 준비완료</span>
                       ) : (
                         <span className="badge bred">미지급</span>
                       )}
@@ -1706,7 +1877,7 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                             isAdd, amount: adjAmt, desc: adjustment.adjDesc
                           } : null
                         })}>
-                        {paid ? "수정" : "지급체크"}
+                        {paid ? "수정" : ready ? "지급완료로" : "지급체크"}
                       </button>
                     </td>
                   </tr>
@@ -3176,12 +3347,17 @@ export default function App() {
                     const payment = (data.payments||[]).find(p =>
                       p.staffId === svSid && p.ym === ym
                     );
+                    const status = payment
+                      ? (payment.status || (payment.paid ? "paid" : "none"))
+                      : "none";
 
                     return {
                       ym, hours: h, basePay, finalPay,
                       adjustment: adj ? {isAdd, amount: adjAmt, desc: adj.adjDesc} : null,
                       payment,
-                      isPaid: payment && payment.paid,
+                      status,
+                      isPaid: status === "paid",
+                      isReady: status === "ready",
                       shiftCount: monthShifts.length
                     };
                   };
@@ -3216,7 +3392,9 @@ export default function App() {
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                               <span style={{fontSize:10,color:m.color,fontWeight:700}}>{m.label}</span>
                               {m.isPaid ? (
-                                <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"rgba(46,213,115,.2)",color:"#20a060",fontWeight:700}}>✓지급</span>
+                                <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"rgba(46,213,115,.2)",color:"#20a060",fontWeight:700}}>✓지급완료</span>
+                              ) : m.isReady ? (
+                                <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"rgba(245,197,24,.25)",color:"#b8860b",fontWeight:700}}>📦준비완료</span>
                               ) : m.shiftCount > 0 ? (
                                 <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"rgba(255,71,87,.15)",color:"#e63946",fontWeight:700}}>미지급</span>
                               ) : null}
@@ -3252,6 +3430,35 @@ export default function App() {
                                 {m.payment.method} · {m.payment.paidDate || ""}
                               </div>
                             ) : null}
+                            {/* 준비완료 → 직원이 "받았어요" 버튼 누름 */}
+                            {m.isReady ? (
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(`${m.ym} 급여를 받으셨다고 표시할까요?\n(€${fmtE(m.payment.amount || m.finalPay)})`)) return;
+                                  const newPayments = (data.payments||[]).map(p =>
+                                    p.id === m.payment.id
+                                      ? {...p, status:"paid", paid:true, paidDate: todayStr()}
+                                      : p
+                                  );
+                                  await persist({...data, payments: newPayments});
+                                  showToast("✅ 받음으로 표시!");
+                                }}
+                                style={{
+                                  marginTop: 6,
+                                  width: "100%",
+                                  padding: "6px",
+                                  background: "#2ed573",
+                                  color: "#fff",
+                                  border: "none",
+                                  borderRadius: 5,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  fontFamily: "'Noto Sans KR', sans-serif"
+                                }}>
+                                💰 받았어요!
+                              </button>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -3265,18 +3472,75 @@ export default function App() {
                   <p style={{color:"#888",fontSize:12}}>이번달 등록된 스케줄 없음</p>
                 ) : (
                   <table className="tbl">
-                    <thead><tr><th>날짜</th><th>요일</th><th>타입</th><th>시간</th><th>급여</th><th></th></tr></thead>
+                    <thead><tr><th>날짜</th><th>타입</th><th>예정</th><th>실제</th><th>출퇴근</th><th>급여</th><th></th></tr></thead>
                     <tbody>
                       {myS.map(s => {
                         const me = gSt(svSid);
                         const h = shiftHours(s);
                         const pay = h * (me?.wage || 0);
+                        const today = todayStr();
+                        const isToday = s.date === today;
+                        const isPast = s.date < today;
+                        const checkedIn = !!s.actualStart;
+                        const checkedOut = !!s.actualEnd;
+
+                        const doCheckIn = async () => {
+                          const now = new Date();
+                          const hh = String(now.getHours()).padStart(2,"0");
+                          const mm = String(now.getMinutes()).padStart(2,"0");
+                          const time = `${hh}:${mm}`;
+                          const newShifts = (data.shifts||[]).map(sh =>
+                            sh.id === s.id ? {...sh, actualStart: time} : sh
+                          );
+                          await persist({...data, shifts: newShifts});
+                          showToast(`✅ 출근 완료 (${time})`);
+                        };
+
+                        const doCheckOut = async () => {
+                          const now = new Date();
+                          const hh = String(now.getHours()).padStart(2,"0");
+                          const mm = String(now.getMinutes()).padStart(2,"0");
+                          const time = `${hh}:${mm}`;
+                          const newShifts = (data.shifts||[]).map(sh =>
+                            sh.id === s.id ? {...sh, actualEnd: time} : sh
+                          );
+                          await persist({...data, shifts: newShifts});
+                          showToast(`✅ 퇴근 완료 (${time})`);
+                        };
+
                         return (
                           <tr key={s.id}>
-                            <td>{s.date}</td>
-                            <td>{dowKo(s.date)}</td>
+                            <td style={{fontSize:11,whiteSpace:"nowrap"}}>
+                              {s.date.slice(5)} <span style={{color:"#888"}}>({dowKo(s.date)})</span>
+                            </td>
                             <td><span className={"badge " + (s.slotType === "오프닝" ? "bylw" : "bgrn")}>{s.slotType}</span></td>
-                            <td className="mn" style={{fontSize:11}}>{s.start}~{s.end} ({h}h)</td>
+                            <td className="mn" style={{fontSize:10,color:"#888"}}>{s.start}~{s.end}</td>
+                            <td className="mn" style={{fontSize:10}}>
+                              {checkedIn ? (
+                                <span style={{color:"#20a060"}}>{s.actualStart}~{s.actualEnd || "..."}</span>
+                              ) : isPast ? (
+                                <span style={{color:"#aaa"}}>—</span>
+                              ) : (
+                                <span style={{color:"#bbb"}}>—</span>
+                              )}
+                            </td>
+                            <td>
+                              {!checkedIn ? (
+                                <button
+                                  className={"btn " + (isToday ? "bp" : "bs") + " sm"}
+                                  onClick={doCheckIn}
+                                  disabled={!isToday && !isPast}
+                                  title={!isToday && !isPast ? "당일이나 지난 날만 가능" : ""}>
+                                  🟢 출근
+                                </button>
+                              ) : !checkedOut ? (
+                                <button className="btn bp sm" onClick={doCheckOut}>
+                                  🔴 퇴근
+                                </button>
+                              ) : (
+                                <span style={{fontSize:10,color:"#20a060",fontWeight:600}}>✓ 완료</span>
+                              )}
+                            </td>
                             <td className="mn" style={{color:"#1971c2",fontSize:11}}>€{fmtE(pay)}</td>
                             <td><button className="btn bd sm" onClick={()=>doCancel(s.id)}>취소</button></td>
                           </tr>
@@ -3568,19 +3832,32 @@ export default function App() {
                 const st = gSt(sh.staffId);
                 const h = shiftHours(sh);
                 const tCls = sh.slotType === "오프닝" ? "bylw" : "bgrn";
+                const hasActual = sh.actualStart || sh.actualEnd;
                 return (
-                  <div key={sh.id} style={{background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:7,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
+                  <div key={sh.id} style={{background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:7,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
                       <span className="dot" style={{background:st?.color||"#666"}} />
                       <strong>{st?.name||"?"}</strong>
                       <span className={"badge " + tCls} style={{marginLeft:5}}>{sh.slotType}</span>
-                      <div style={{fontSize:11,color:"#888",marginTop:2}}>{sh.start}~{sh.end} · {h}h · €{fmtE(h * (st?.wage || 0))}</div>
+                      <div style={{fontSize:11,color:"#888",marginTop:2}}>
+                        예정 {sh.start}~{sh.end} · {h}h · €{fmtE(h * (st?.wage || 0))}
+                      </div>
+                      {hasActual ? (
+                        <div style={{fontSize:11,color:"#7950f2",marginTop:2}}>
+                          ⏱️ 실제 {sh.actualStart || "?"}~{sh.actualEnd || "..."}
+                        </div>
+                      ) : null}
+                      {sh.memo ? <div style={{fontSize:10,color:"#888",marginTop:2,fontStyle:"italic"}}>📝 {sh.memo}</div> : null}
                     </div>
-                    <button className="btn bd sm" onClick={async()=>{
-                      await persist({...data, shifts: (data.shifts||[]).filter(s => s.id !== sh.id)});
-                      closeModal();
-                      showToast("삭제");
-                    }}>삭제</button>
+                    <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                      <button className="btn bs sm" onClick={()=>setModal({type:"editShift", shift: sh})}>수정</button>
+                      <button className="btn bd sm" onClick={async()=>{
+                        if(!confirm("삭제?")) return;
+                        await persist({...data, shifts: (data.shifts||[]).filter(s => s.id !== sh.id)});
+                        closeModal();
+                        showToast("삭제");
+                      }}>삭제</button>
+                    </div>
                   </div>
                 );
               })
@@ -3604,6 +3881,7 @@ export default function App() {
     if (modal.type === "editPayment") return <EditPaymentModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
     if (modal.type === "expense") return <ExpenseModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "csvImport") return <CsvImportModal data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "editShift") return <EditShiftModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
     if (modal.type === "historical") return <HistoricalModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
 
     return null;
