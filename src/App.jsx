@@ -114,7 +114,40 @@ const DEFAULT_DATA = {
   payments: [],
   expenses: [],         // 지출 기록 [{id, date, category, amount, memo, recurring}]
   historicalData: [],   // 과거 월별 직접 입력 데이터 [{ym, sales, expenses, labor, memo}]
-  cancellations: []     // 직원 취소 기록 [{id, staffId, staffName, date, slotType, reason, cancelledAt, viewed}]
+  cancellations: [],    // 직원 취소 기록 [{id, staffId, staffName, date, slotType, reason, cancelledAt, viewed}]
+  // 체크리스트 템플릿: [{id, name, icon, items: [{id, text}], order}]
+  checklists: [
+    {
+      id: 1, name: "오프닝", icon: "🌅", order: 1,
+      items: [
+        {id: 11, text: "매장 문 열고 조명 켜기"},
+        {id: 12, text: "에어컨/난방 켜기"},
+        {id: 13, text: "카메라 및 장비 점검"},
+        {id: 14, text: "포토부스 청소 (거울, 의자)"},
+        {id: 15, text: "POS 시스템 켜기"},
+        {id: 16, text: "잔돈 준비 확인"},
+        {id: 17, text: "음악 켜기"}
+      ]
+    },
+    {
+      id: 2, name: "마감", icon: "🌙", order: 2,
+      items: [
+        {id: 21, text: "매장 정리 및 청소"},
+        {id: 22, text: "카메라/장비 정리"},
+        {id: 23, text: "쓰레기 비우기"},
+        {id: 24, text: "POS 마감 (정산)"},
+        {id: 25, text: "현금 금고에 보관"},
+        {id: 26, text: "에어컨/조명 끄기"},
+        {id: 27, text: "문 잠그기"}
+      ]
+    }
+  ],
+  // 체크리스트 완료 기록: [{id, checklistId, staffId, date, checkedItems: [itemId], note, completedAt}]
+  completions: [],
+  // 설정 (매뉴얼 URL 등)
+  settings: {
+    manualUrl: "" // 구글 독스 매뉴얼 링크
+  }
 };
 
 // ═══ Google Apps Script 백엔드 ═══
@@ -1006,6 +1039,377 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
 }
 
 // CSV 자동 매출 입력 모달
+// 체크리스트 실행 모달 (직원용)
+function ChecklistRunModal({ modal, data, persist, close, toast, gSt }) {
+  const checklist = (data.checklists||[]).find(c => c.id === modal.checklistId);
+  const staff = gSt(modal.staffId);
+  const today = todayStr();
+
+  // 오늘 이 체크리스트의 기존 완료 기록 (있으면 이어서)
+  const existing = (data.completions||[]).find(c =>
+    c.checklistId === modal.checklistId &&
+    c.date === today &&
+    c.staffId === modal.staffId
+  );
+
+  const [checked, setChecked] = useState(new Set(existing?.checkedItems || []));
+  const [note, setNote] = useState(existing?.note || "");
+
+  if (!checklist) {
+    return (
+      <div className="ov" onClick={close}>
+        <div className="modal"><h3>체크리스트 없음</h3><div className="mf"><button className="btn bs" onClick={close}>닫기</button></div></div>
+      </div>
+    );
+  }
+
+  const toggle = (id) => {
+    const s = new Set(checked);
+    if (s.has(id)) s.delete(id);
+    else s.add(id);
+    setChecked(s);
+  };
+
+  const save = async () => {
+    const allChecked = checklist.items.every(i => checked.has(i.id));
+    const entry = {
+      id: existing?.id || Date.now(),
+      checklistId: modal.checklistId,
+      staffId: modal.staffId,
+      staffName: staff?.name || "?",
+      date: today,
+      checkedItems: [...checked],
+      totalItems: checklist.items.length,
+      complete: allChecked,
+      note,
+      completedAt: new Date().toISOString()
+    };
+    let nd;
+    if (existing) {
+      nd = {...data, completions: (data.completions||[]).map(c => c.id===existing.id ? entry : c)};
+    } else {
+      nd = {...data, completions: [...(data.completions||[]), entry]};
+    }
+    await persist(nd);
+    close();
+    toast(allChecked ? `✅ ${checklist.name} 완료!` : "💾 진행상황 저장됨");
+  };
+
+  const checkAll = () => setChecked(new Set(checklist.items.map(i => i.id)));
+  const uncheckAll = () => setChecked(new Set());
+
+  const progress = checklist.items.length > 0
+    ? Math.round([...checked].filter(id => checklist.items.find(i => i.id === id)).length / checklist.items.length * 100)
+    : 0;
+
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal" style={{maxWidth:480}}>
+        <h3>{checklist.icon} {checklist.name} 체크리스트</h3>
+        <div style={{fontSize:11,color:"#888",marginBottom:10}}>
+          {staff?.name} · {today}
+        </div>
+
+        {/* 진행률 바 */}
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+            <span style={{fontSize:11,color:"#666",fontWeight:600}}>
+              {[...checked].filter(id => checklist.items.find(i => i.id === id)).length} / {checklist.items.length} 완료
+            </span>
+            <span style={{fontSize:11,color: progress === 100 ? "#20a060" : "#1971c2",fontWeight:700}}>
+              {progress}%
+            </span>
+          </div>
+          <div style={{background:"#f0f0f0",borderRadius:4,height:6,overflow:"hidden"}}>
+            <div style={{
+              height:"100%",
+              width: progress + "%",
+              background: progress === 100 ? "#2ed573" : "#4dabf7",
+              transition:"width .3s"
+            }} />
+          </div>
+        </div>
+
+        {/* 액션 버튼 */}
+        <div style={{display:"flex",gap:5,marginBottom:10}}>
+          <button className="btn bs sm" onClick={checkAll} style={{flex:1}}>✓ 모두 체크</button>
+          <button className="btn bs sm" onClick={uncheckAll} style={{flex:1}}>✗ 모두 해제</button>
+        </div>
+
+        {/* 체크 항목들 */}
+        <div style={{maxHeight:300,overflowY:"auto",marginBottom:10}}>
+          {checklist.items.map(item => {
+            const isChecked = checked.has(item.id);
+            return (
+              <div
+                key={item.id}
+                onClick={()=>toggle(item.id)}
+                style={{
+                  display:"flex",
+                  alignItems:"center",
+                  gap:10,
+                  padding:"10px 12px",
+                  background: isChecked ? "rgba(46,213,115,.1)" : "#f5f5f7",
+                  border: isChecked ? "1px solid #2ed573" : "1px solid transparent",
+                  borderRadius:7,
+                  marginBottom:5,
+                  cursor:"pointer",
+                  transition:"all .15s"
+                }}>
+                <div style={{
+                  width:22,height:22,borderRadius:5,
+                  background: isChecked ? "#2ed573" : "#fff",
+                  border: isChecked ? "none" : "2px solid #d0d0d0",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  flexShrink:0,
+                  color:"#fff",fontSize:12,fontWeight:700
+                }}>
+                  {isChecked ? "✓" : ""}
+                </div>
+                <span style={{
+                  fontSize:13,
+                  color: isChecked ? "#888" : "#1a1a1a",
+                  textDecoration: isChecked ? "line-through" : "none"
+                }}>
+                  {item.text}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 메모 */}
+        <div className="fr">
+          <div>
+            <label>📝 메모 (선택사항 — 사장님께 전달)</label>
+            <input
+              value={note}
+              onChange={e=>setNote(e.target.value)}
+              placeholder="예: 카메라 1번 렌즈 고장, 휴지 부족"
+            />
+          </div>
+        </div>
+
+        <div className="mf">
+          <button className="btn bs" onClick={close}>나가기</button>
+          <button className="btn bp" onClick={save}>
+            {progress === 100 ? "✅ 완료" : "💾 저장"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 체크리스트 관리 모달 (관리자가 항목 편집)
+function ChecklistManageModal({ data, persist, close, toast }) {
+  const [editingList, setEditingList] = useState(null); // 현재 편집 중인 체크리스트 객체
+  const [newItemText, setNewItemText] = useState("");
+
+  // 새 체크리스트 추가
+  const addList = async () => {
+    const name = prompt("체크리스트 이름 (예: 청소, 비품관리)");
+    if (!name) return;
+    const icon = prompt("이모지 1개 (예: 🧹, 📦, ⚠️)", "📋") || "📋";
+    const newList = {
+      id: Date.now(),
+      name,
+      icon,
+      order: (data.checklists||[]).length + 1,
+      items: []
+    };
+    await persist({...data, checklists: [...(data.checklists||[]), newList]});
+    setEditingList(newList);
+  };
+
+  // 체크리스트 삭제
+  const removeList = async (id) => {
+    if (!confirm("이 체크리스트를 삭제할까요? (지난 기록은 그대로 유지)")) return;
+    await persist({...data, checklists: (data.checklists||[]).filter(c => c.id !== id)});
+    if (editingList?.id === id) setEditingList(null);
+    toast("삭제됨");
+  };
+
+  // 항목 추가
+  const addItem = async () => {
+    if (!newItemText.trim() || !editingList) return;
+    const newItem = { id: Date.now(), text: newItemText.trim() };
+    const updatedList = { ...editingList, items: [...editingList.items, newItem] };
+    setEditingList(updatedList);
+    await persist({...data, checklists: (data.checklists||[]).map(c => c.id === editingList.id ? updatedList : c)});
+    setNewItemText("");
+  };
+
+  // 항목 삭제
+  const removeItem = async (itemId) => {
+    if (!editingList) return;
+    const updatedList = { ...editingList, items: editingList.items.filter(i => i.id !== itemId) };
+    setEditingList(updatedList);
+    await persist({...data, checklists: (data.checklists||[]).map(c => c.id === editingList.id ? updatedList : c)});
+  };
+
+  // 항목 수정
+  const editItem = async (itemId) => {
+    const item = editingList.items.find(i => i.id === itemId);
+    if (!item) return;
+    const newText = prompt("수정", item.text);
+    if (!newText || newText === item.text) return;
+    const updatedList = {
+      ...editingList,
+      items: editingList.items.map(i => i.id === itemId ? {...i, text: newText} : i)
+    };
+    setEditingList(updatedList);
+    await persist({...data, checklists: (data.checklists||[]).map(c => c.id === editingList.id ? updatedList : c)});
+  };
+
+  // 체크리스트 이름/아이콘 변경
+  const editListMeta = async () => {
+    if (!editingList) return;
+    const name = prompt("이름 변경", editingList.name);
+    if (!name) return;
+    const icon = prompt("이모지", editingList.icon) || editingList.icon;
+    const updated = {...editingList, name, icon};
+    setEditingList(updated);
+    await persist({...data, checklists: (data.checklists||[]).map(c => c.id === editingList.id ? updated : c)});
+  };
+
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal" style={{maxWidth:520}}>
+        <h3>📋 체크리스트 관리</h3>
+
+        {!editingList ? (
+          <>
+            <div style={{fontSize:11,color:"#888",marginBottom:10}}>
+              💡 체크리스트를 클릭해서 편집하거나 새로 만드세요
+            </div>
+            {(data.checklists||[]).map(cl => (
+              <div key={cl.id} style={{
+                background:"#f5f5f7",
+                borderRadius:7,
+                padding:"10px 12px",
+                marginBottom:6,
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"space-between",
+                cursor:"pointer"
+              }}
+              onClick={()=>setEditingList(cl)}>
+                <div>
+                  <span style={{fontSize:18,marginRight:6}}>{cl.icon}</span>
+                  <strong>{cl.name}</strong>
+                  <span style={{fontSize:11,color:"#888",marginLeft:6}}>{cl.items.length}개 항목</span>
+                </div>
+                <div style={{display:"flex",gap:4}}>
+                  <button className="btn bs sm" onClick={e=>{e.stopPropagation(); setEditingList(cl);}}>편집</button>
+                  <button className="btn bd sm" onClick={e=>{e.stopPropagation(); removeList(cl.id);}}>삭제</button>
+                </div>
+              </div>
+            ))}
+            <button className="btn bp" style={{width:"100%",marginTop:10}} onClick={addList}>
+              + 새 체크리스트
+            </button>
+            <div className="mf">
+              <button className="btn bs" onClick={close}>닫기</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <button className="btn bs sm" onClick={()=>setEditingList(null)}>← 뒤로</button>
+              <button className="btn bs sm" onClick={editListMeta}>이름 변경</button>
+            </div>
+            <div style={{fontSize:16,fontWeight:700,marginBottom:10}}>
+              {editingList.icon} {editingList.name}
+            </div>
+
+            <div style={{maxHeight:300,overflowY:"auto",marginBottom:10}}>
+              {editingList.items.length === 0 ? (
+                <div style={{textAlign:"center",color:"#aaa",padding:20,fontSize:12}}>아직 항목이 없어요</div>
+              ) : editingList.items.map((item, idx) => (
+                <div key={item.id} style={{
+                  display:"flex",
+                  alignItems:"center",
+                  gap:8,
+                  padding:"7px 10px",
+                  background:"#f5f5f7",
+                  borderRadius:6,
+                  marginBottom:4
+                }}>
+                  <span style={{fontSize:11,color:"#888",width:18}}>{idx+1}.</span>
+                  <span style={{flex:1,fontSize:13}}>{item.text}</span>
+                  <button className="btn bs sm" onClick={()=>editItem(item.id)}>✏️</button>
+                  <button className="btn bd sm" onClick={()=>removeItem(item.id)}>🗑</button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:"flex",gap:5,marginBottom:10}}>
+              <input
+                value={newItemText}
+                onChange={e=>setNewItemText(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter") addItem();}}
+                placeholder="새 항목 입력 후 Enter"
+                style={{flex:1}}
+              />
+              <button className="btn bp" onClick={addItem}>추가</button>
+            </div>
+
+            <div className="mf">
+              <button className="btn bs" onClick={close}>완료</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 매뉴얼 URL 설정 모달
+function ManualSettingsModal({ data, persist, close, toast }) {
+  const [url, setUrl] = useState(data.settings?.manualUrl || "");
+
+  const save = async () => {
+    await persist({...data, settings: {...(data.settings||{}), manualUrl: url.trim()}});
+    close();
+    toast("매뉴얼 링크 저장!");
+  };
+
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>📘 매뉴얼 링크 설정</h3>
+        <div style={{fontSize:11,color:"#888",marginBottom:10,background:"#f5f5f7",padding:10,borderRadius:6}}>
+          💡 Google Docs / Notion 등에 만든 매뉴얼 페이지의 공유 링크를 붙여넣으세요.
+          <br/>직원 화면에 "📘 매뉴얼 보기" 버튼이 표시됩니다.
+        </div>
+        <div className="fr">
+          <div>
+            <label>매뉴얼 URL</label>
+            <input
+              type="url"
+              value={url}
+              onChange={e=>setUrl(e.target.value)}
+              placeholder="https://docs.google.com/document/d/..."
+            />
+          </div>
+        </div>
+        {url ? (
+          <div style={{marginTop:10}}>
+            <a href={url} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#1971c2"}}>
+              🔗 링크 미리 열어보기
+            </a>
+          </div>
+        ) : null}
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CsvImportModal({ data, persist, close, toast }) {
   const [parsed, setParsed] = useState(null); // {date: {pc,pk,...}}
   const [affectedKeys, setAffectedKeys] = useState([]); // 이번 업로드에서 영향받는 카테고리 키들
@@ -2984,6 +3388,85 @@ export default function App() {
             </div>
           </div>
         ) : null}
+        {/* 오늘 체크리스트 진행상황 */}
+        {(() => {
+          const today = todayStr();
+          const lists = data.checklists || [];
+          if (lists.length === 0) return null;
+          const todayCompletions = (data.completions||[]).filter(c => c.date === today);
+          // 메모가 있는 것들도 표시
+          const withNotes = todayCompletions.filter(c => c.note && c.note.trim());
+
+          return (
+            <div style={{
+              background: "rgba(77,171,247,.08)",
+              border: "1px solid rgba(77,171,247,.3)",
+              borderRadius: 8,
+              padding: "10px 12px",
+              marginBottom: 10,
+              fontSize: 12
+            }}>
+              <div style={{color:"#1971c2", fontWeight:700, marginBottom:7}}>
+                📋 오늘 체크리스트 ({today})
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {lists.map(cl => {
+                  const completions = todayCompletions.filter(c => c.checklistId === cl.id);
+                  const completed = completions.filter(c => c.complete);
+                  const inProgress = completions.filter(c => !c.complete && c.checkedItems.length > 0);
+                  const status = completed.length > 0 ? "done" : inProgress.length > 0 ? "progress" : "none";
+                  return (
+                    <div key={cl.id} style={{
+                      background: status === "done"
+                        ? "rgba(46,213,115,.2)"
+                        : status === "progress"
+                          ? "rgba(245,197,24,.25)"
+                          : "rgba(255,71,87,.1)",
+                      border: status === "done"
+                        ? "1px solid #2ed573"
+                        : status === "progress"
+                          ? "1px solid #f5c518"
+                          : "1px solid rgba(255,71,87,.4)",
+                      color: status === "done"
+                        ? "#20a060"
+                        : status === "progress"
+                          ? "#b8860b"
+                          : "#c92a3a",
+                      padding:"4px 9px",
+                      borderRadius:5,
+                      fontWeight:600,
+                      fontSize:11
+                    }}>
+                      {cl.icon} {cl.name}: {completed.length > 0 ? `✓ ${completed.map(c=>c.staffName).join(", ")}` : inProgress.length > 0 ? `진행중 (${inProgress.map(c=>c.staffName).join(", ")})` : "미완료"}
+                    </div>
+                  );
+                })}
+              </div>
+              {withNotes.length > 0 ? (
+                <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(77,171,247,.2)"}}>
+                  <div style={{fontSize:10,color:"#888",fontWeight:600,marginBottom:4}}>📝 직원 메모:</div>
+                  {withNotes.map(c => {
+                    const cl = lists.find(l => l.id === c.checklistId);
+                    return (
+                      <div key={c.id} style={{
+                        fontSize:11,
+                        background:"#fff",
+                        borderRadius:5,
+                        padding:"5px 8px",
+                        marginBottom:3
+                      }}>
+                        <strong>{c.staffName}</strong>
+                        <span style={{color:"#888",marginLeft:4}}>· {cl?.icon} {cl?.name}</span>
+                        <div style={{color:"#1a1a1a",marginTop:2}}>💬 {c.note}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })()}
+
         {/* 직원 취소 알림 */}
         {(() => {
           const cancellations = (data.cancellations||[]).filter(c => !c.viewed)
@@ -3328,6 +3811,33 @@ export default function App() {
           </tbody>
         </table>
       </div>
+      <div className="card" style={{marginTop:12,border:"1px solid rgba(77,171,247,.3)"}}>
+        <div className="ct" style={{color:"#1971c2"}}>📋 체크리스트 & 매뉴얼</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <button
+            className="btn bs"
+            onClick={()=>setModal({type:"checklistManage"})}
+            style={{padding:"12px",textAlign:"left",lineHeight:1.4}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>📋 체크리스트 편집</div>
+            <div style={{fontSize:10,color:"#666"}}>
+              {(data.checklists||[]).length}개 · 항목 {(data.checklists||[]).reduce((t,c)=>t+c.items.length,0)}개
+            </div>
+          </button>
+          <button
+            className="btn bs"
+            onClick={()=>setModal({type:"manualSettings"})}
+            style={{padding:"12px",textAlign:"left",lineHeight:1.4}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>📘 매뉴얼 링크</div>
+            <div style={{fontSize:10,color:"#666"}}>
+              {data.settings?.manualUrl ? "✓ 설정됨" : "미설정"}
+            </div>
+          </button>
+        </div>
+        <div style={{fontSize:10,color:"#888",padding:"6px 8px",background:"#f5f5f7",borderRadius:5}}>
+          💡 매뉴얼은 Google Docs 등 외부 링크로 연결 (사진/영상 등 풍부한 자료)
+        </div>
+      </div>
+
       <div className="card" style={{marginTop:12,border:"1px solid rgba(245,197,24,.2)"}}>
         <div className="ct" style={{color:"#f5c518"}}>🔐 관리자 PIN 변경</div>
         <PinChange pin={pin} setPin={setPin} />
@@ -3512,6 +4022,88 @@ export default function App() {
                   <button className="btn bp" style={{width:"100%",marginTop:4}} onClick={doSave}>✅ 저장하기</button>
                 ) : null}
               </div>
+
+              {/* 체크리스트 + 매뉴얼 카드 */}
+              <div className="card">
+                <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📋 일일 체크리스트</div>
+                {(data.checklists||[]).length === 0 ? (
+                  <p style={{color:"#888",fontSize:12}}>체크리스트가 아직 없습니다</p>
+                ) : (
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    {(data.checklists||[]).sort((a,b)=>(a.order||0)-(b.order||0)).map(cl => {
+                      const today = todayStr();
+                      const myCompletion = (data.completions||[]).find(c =>
+                        c.checklistId === cl.id &&
+                        c.staffId === svSid &&
+                        c.date === today
+                      );
+                      const checkedCount = myCompletion?.checkedItems?.length || 0;
+                      const total = cl.items.length;
+                      const isComplete = myCompletion?.complete;
+                      const inProgress = !isComplete && checkedCount > 0;
+                      return (
+                        <button
+                          key={cl.id}
+                          onClick={()=>setModal({type:"checklistRun", checklistId: cl.id, staffId: svSid})}
+                          style={{
+                            background: isComplete
+                              ? "linear-gradient(135deg, rgba(46,213,115,.15), rgba(77,171,247,.1))"
+                              : inProgress
+                                ? "rgba(245,197,24,.15)"
+                                : "#f5f5f7",
+                            border: isComplete
+                              ? "1.5px solid #2ed573"
+                              : inProgress
+                                ? "1.5px solid #f5c518"
+                                : "1px solid #e0e0e0",
+                            borderRadius: 9,
+                            padding: "12px 10px",
+                            cursor: "pointer",
+                            textAlign: "left",
+                            fontFamily: "'Noto Sans KR', sans-serif"
+                          }}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                            <span style={{fontSize:18}}>{cl.icon}</span>
+                            {isComplete ? (
+                              <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#2ed573",color:"#fff",fontWeight:700}}>✓ 완료</span>
+                            ) : inProgress ? (
+                              <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#f5c518",color:"#000",fontWeight:700}}>진행중</span>
+                            ) : null}
+                          </div>
+                          <div style={{fontSize:13,fontWeight:700,color:"#1a1a1a"}}>{cl.name}</div>
+                          <div style={{fontSize:11,color:"#666",marginTop:3}}>
+                            {checkedCount} / {total}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 매뉴얼 링크 */}
+                {data.settings?.manualUrl ? (
+                  <a
+                    href={data.settings.manualUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display:"block",
+                      marginTop:10,
+                      padding:"10px 12px",
+                      background:"linear-gradient(135deg, rgba(77,171,247,.12), rgba(165,94,234,.1))",
+                      border:"1px solid #4dabf7",
+                      borderRadius:8,
+                      textDecoration:"none",
+                      color:"#1971c2",
+                      fontSize:13,
+                      fontWeight:600,
+                      textAlign:"center"
+                    }}>
+                    📘 직원 매뉴얼 보기 →
+                  </a>
+                ) : null}
+              </div>
+
               <div className="card">
                 <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📌 내 앞으로 스케줄</div>
                 {(() => {
@@ -4123,6 +4715,9 @@ export default function App() {
     if (modal.type === "expense") return <ExpenseModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "csvImport") return <CsvImportModal data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "editShift") return <EditShiftModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
+    if (modal.type === "checklistRun") return <ChecklistRunModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
+    if (modal.type === "checklistManage") return <ChecklistManageModal data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "manualSettings") return <ManualSettingsModal data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "historical") return <HistoricalModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
 
     return null;
