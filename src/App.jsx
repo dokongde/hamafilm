@@ -74,6 +74,28 @@ function fmt(n){return Number(n||0).toLocaleString("ko-KR");}
 function nid(arr){return arr.length?Math.max(...arr.map(x=>x.id))+1:1;}
 function shiftHours(sh){return sh.hours||(getSlots(sh.date).find(s=>s.type===sh.slotType)||{hours:0}).hours;}
 
+// 실제 근무 시간 계산 (분 단위)
+function actualMinutes(sh) {
+  if (!sh.actualStart || !sh.actualEnd) return null;
+  const [sh1, sm1] = sh.actualStart.split(":").map(Number);
+  const [eh1, em1] = sh.actualEnd.split(":").map(Number);
+  return (eh1*60+em1) - (sh1*60+sm1);
+}
+
+// 예정 vs 실제 차이 (분). 양수=더 일함, 음수=덜 일함, null=미체크
+function timeDiff(sh) {
+  const actual = actualMinutes(sh);
+  if (actual === null) return null;
+  const planned = shiftHours(sh) * 60;
+  return actual - planned;
+}
+
+// 차이가 30분 이상 (절대값)이면 주목 필요
+function needsAttention(sh) {
+  const d = timeDiff(sh);
+  return d !== null && Math.abs(d) >= 30;
+}
+
 const DEFAULT_PIN = "1234";
 const STORE_KEY = "hamafilm_v2";
 const PIN_KEY = "hamafilm_pin_v2";
@@ -2961,6 +2983,68 @@ export default function App() {
             </div>
           </div>
         ) : null}
+        {/* 30분 이상 추가/단축 근무 알림 */}
+        {(() => {
+          // 이번달 시프트 중 출퇴근 체크된 것에서 30분 이상 차이 찾기
+          const flagged = (data.shifts||[])
+            .filter(s => s.date.startsWith(pfx))
+            .filter(s => s.actualStart && s.actualEnd)
+            .filter(needsAttention)
+            .sort((a,b) => b.date.localeCompare(a.date));
+
+          if (flagged.length === 0) return null;
+          return (
+            <div style={{
+              background: "rgba(165, 94, 234, 0.15)",
+              border: "1.5px solid #a55eea",
+              borderRadius: 8,
+              padding: "10px 12px",
+              marginBottom: 10,
+              fontSize: 12
+            }}>
+              <div style={{color:"#7950f2", fontWeight:700, marginBottom:5}}>
+                ⏰ 예정과 30분 이상 차이 — 확인 필요 ({flagged.length}건)
+              </div>
+              <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
+                {flagged.slice(0, 12).map(s => {
+                  const st = gSt(s.staffId);
+                  const diff = timeDiff(s);
+                  const more = diff > 0;
+                  const absMin = Math.abs(diff);
+                  const hh = Math.floor(absMin / 60);
+                  const mm = absMin % 60;
+                  const diffText = (hh > 0 ? `${hh}h` : "") + (mm > 0 ? `${mm}분` : "");
+                  return (
+                    <span
+                      key={s.id}
+                      onClick={()=>setModal({type:"editShift", shift: s})}
+                      style={{
+                        background: more ? "rgba(46,213,115,.25)" : "rgba(255,71,87,.2)",
+                        color: more ? "#20a060" : "#e63946",
+                        padding:"3px 8px",
+                        borderRadius:5,
+                        fontWeight:600,
+                        cursor:"pointer",
+                        fontSize:11,
+                        display:"inline-flex",
+                        alignItems:"center",
+                        gap:4
+                      }}>
+                      <span className="dot" style={{background:st?.color||"#666",width:5,height:5}} />
+                      {st?.name} · {s.date.slice(5)} {more ? "+" : "-"}{diffText}
+                    </span>
+                  );
+                })}
+                {flagged.length > 12 ? (
+                  <span style={{fontSize:10,color:"#888",alignSelf:"center"}}>... +{flagged.length - 12}건</span>
+                ) : null}
+              </div>
+              <div style={{fontSize:10,color:"#7950f2",marginTop:6}}>
+                💡 클릭하면 시프트 수정 화면 → 인정 시 시간 조정으로 급여 반영
+              </div>
+            </div>
+          );
+        })()}
         <div className="cg">
           {DOW_KO.map((d, i) => (
             <div key={d} className="cdow" style={{color: i===0 ? "#ff4757" : ""}}>{d}</div>
@@ -3501,8 +3585,38 @@ export default function App() {
                           const hh = String(now.getHours()).padStart(2,"0");
                           const mm = String(now.getMinutes()).padStart(2,"0");
                           const time = `${hh}:${mm}`;
+                          // 차이 계산 (분)
+                          const [psh, psm] = s.start.split(":").map(Number);
+                          const [peh, pem] = s.end.split(":").map(Number);
+                          const plannedMin = (peh*60+pem) - (psh*60+psm);
+                          const [ash, asm] = (s.actualStart || s.start).split(":").map(Number);
+                          const actualMin = (now.getHours()*60+now.getMinutes()) - (ash*60+asm);
+                          const diffMin = actualMin - plannedMin;
+
+                          let updatedShift = {...s, actualEnd: time};
+                          // 30분 이상 차이나면 사유 입력 받기
+                          if (Math.abs(diffMin) >= 30) {
+                            const more = diffMin > 0;
+                            const absMin = Math.abs(diffMin);
+                            const hh2 = Math.floor(absMin / 60);
+                            const mm2 = absMin % 60;
+                            const diffText = (hh2 > 0 ? `${hh2}시간` : "") + (mm2 > 0 ? `${mm2}분` : "");
+                            const reason = prompt(
+                              `⚠️ 예정보다 ${diffText} ${more ? "더" : "덜"} 일하셨네요.\n` +
+                              `사장님께 전할 메모를 남겨주세요:\n` +
+                              `(예: "추가 근무 요청받음", "조기 퇴근 허락받음")`,
+                              s.memo || ""
+                            );
+                            if (reason !== null) {
+                              updatedShift.memo = reason || "";
+                            } else {
+                              // 취소 누름 — 퇴근 체크 안 함
+                              return;
+                            }
+                          }
+
                           const newShifts = (data.shifts||[]).map(sh =>
-                            sh.id === s.id ? {...sh, actualEnd: time} : sh
+                            sh.id === s.id ? updatedShift : sh
                           );
                           await persist({...data, shifts: newShifts});
                           showToast(`✅ 퇴근 완료 (${time})`);
@@ -3833,18 +3947,36 @@ export default function App() {
                 const h = shiftHours(sh);
                 const tCls = sh.slotType === "오프닝" ? "bylw" : "bgrn";
                 const hasActual = sh.actualStart || sh.actualEnd;
+                const diff = timeDiff(sh);
+                const flagged = needsAttention(sh);
                 return (
-                  <div key={sh.id} style={{background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:7,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                  <div key={sh.id} style={{
+                    background: flagged ? "rgba(165, 94, 234, 0.1)" : "#f5f5f7",
+                    border: flagged ? "1.5px solid #a55eea" : "1px solid transparent",
+                    borderRadius:8,
+                    padding:10,
+                    marginBottom:7,
+                    display:"flex",
+                    justifyContent:"space-between",
+                    alignItems:"center",
+                    gap:8
+                  }}>
                     <div style={{flex:1,minWidth:0}}>
                       <span className="dot" style={{background:st?.color||"#666"}} />
                       <strong>{st?.name||"?"}</strong>
                       <span className={"badge " + tCls} style={{marginLeft:5}}>{sh.slotType}</span>
+                      {flagged ? <span style={{marginLeft:5,fontSize:10,color:"#7950f2",fontWeight:700}}>⏰ 확인필요</span> : null}
                       <div style={{fontSize:11,color:"#888",marginTop:2}}>
                         예정 {sh.start}~{sh.end} · {h}h · €{fmtE(h * (st?.wage || 0))}
                       </div>
                       {hasActual ? (
-                        <div style={{fontSize:11,color:"#7950f2",marginTop:2}}>
+                        <div style={{fontSize:11,color: flagged ? "#7950f2" : "#666",marginTop:2,fontWeight: flagged ? 600 : 400}}>
                           ⏱️ 실제 {sh.actualStart || "?"}~{sh.actualEnd || "..."}
+                          {diff !== null ? (
+                            <span style={{marginLeft:6, color: diff > 0 ? "#20a060" : "#e63946", fontWeight:700}}>
+                              ({diff > 0 ? "+" : ""}{Math.floor(Math.abs(diff)/60) > 0 ? Math.floor(Math.abs(diff)/60)+"h" : ""}{Math.abs(diff)%60 > 0 ? Math.abs(diff)%60+"분" : ""})
+                            </span>
+                          ) : null}
                         </div>
                       ) : null}
                       {sh.memo ? <div style={{fontSize:10,color:"#888",marginTop:2,fontStyle:"italic"}}>📝 {sh.memo}</div> : null}
