@@ -157,17 +157,69 @@ let STORAGE_MODE = "loading";
 let LAST_ERROR = "";
 let SAVING = false;
 let LAST_SAVE_AT = 0;
-let LAST_USER_INTERACTION = 0;  // 마지막 사용자 동작 시각
-let LAST_SYNCED_JSON = "";       // 마지막으로 동기화한 데이터 (변경 감지용)
+let LAST_USER_INTERACTION = 0;
+let LAST_SYNCED_JSON = "";
+
+// ===== 다중 시트 분산 저장 =====
+// 각 데이터 종류를 별도 시트에 저장하여 50KB 한계 회피
+// 시트 이름 매핑: 어떤 데이터가 어떤 시트로 가는지
+const BUCKETS = {
+  // 자주 변경 + 핵심 (기본 시트)
+  data: ["staff", "fixed", "vacations", "checklists", "settings", "historicalData", "payrollRecords"],
+  // 큰 데이터들은 별도 시트로
+  shifts: ["shifts"],
+  sales: ["sales"],
+  completions: ["completions"],
+  expenses: ["expenses"],
+  payments: ["payments"],
+  cancellations: ["cancellations"]
+};
+
+// 데이터 키 → 시트 이름 역매핑
+const KEY_TO_BUCKET = {};
+Object.entries(BUCKETS).forEach(([bucket, keys]) => {
+  keys.forEach(k => { KEY_TO_BUCKET[k] = bucket; });
+});
 
 async function loadData(){
   try {
+    // 모든 시트 한 번에 가져오기
     const res = await fetch(GAS_URL, { method: "GET", redirect: "follow" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const j = await res.json();
     STORAGE_MODE = "shared";
     LAST_ERROR = "";
+
+    if (j && j.multi && j.data) {
+      // 신규 다중 시트 형식: 각 시트의 데이터를 합쳐서 하나의 데이터 객체로
+      const merged = {};
+      Object.entries(j.data).forEach(([bucket, jsonStr]) => {
+        if (!jsonStr) return;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          // data 시트는 기존 호환성: STORE_KEY 안에 모든 게 들어있을 수 있음
+          if (parsed[STORE_KEY]) {
+            Object.assign(merged, parsed[STORE_KEY]);
+          } else {
+            // 새 형식: 시트 이름이 키
+            Object.assign(merged, parsed);
+          }
+        } catch(e) { console.warn("parse fail", bucket, e); }
+      });
+      // PIN 추출
+      if (merged[PIN_KEY]) {
+        try { localStorage.setItem(PIN_KEY, merged[PIN_KEY]); } catch(e) {}
+      }
+      // STORE_KEY 키들이 비어있으면 빈 배열로 초기화
+      ["staff","shifts","fixed","vacations","sales","payrollRecords","payments","expenses","historicalData","cancellations","checklists","completions"].forEach(k => {
+        if (!merged[k]) merged[k] = [];
+      });
+      if (!merged.settings) merged.settings = {};
+      return merged;
+    }
+
     if (j && j.data) {
+      // 옛날 단일 시트 형식 (호환성)
       try {
         const parsed = JSON.parse(j.data);
         return parsed[STORE_KEY] || null;
@@ -178,6 +230,7 @@ async function loadData(){
     LAST_ERROR = e.message || String(e);
     console.error("GAS load error", e);
   }
+  // 로컬 폴백
   try {
     STORAGE_MODE = "local";
     const r = localStorage.getItem(STORE_KEY);
@@ -186,17 +239,46 @@ async function loadData(){
   return null;
 }
 
+// 데이터를 여러 시트로 분산 저장
+function splitData(d) {
+  // 각 시트별로 저장할 데이터 객체 만들기
+  const buckets = {};
+  Object.keys(BUCKETS).forEach(bucket => {
+    buckets[bucket] = {};
+  });
+
+  // 키별로 적절한 시트에 분배
+  Object.entries(d || {}).forEach(([key, value]) => {
+    const targetBucket = KEY_TO_BUCKET[key] || "data";
+    buckets[targetBucket][key] = value;
+  });
+
+  // PIN은 data 시트에
+  try {
+    const pin = localStorage.getItem(PIN_KEY);
+    if (pin) buckets.data[PIN_KEY] = pin;
+  } catch(e) {}
+
+  return buckets;
+}
+
 async function saveData(d){
   SAVING = true;
   try {
-    const existing = await fetchAll();
-    existing[STORE_KEY] = d;
-    const body = JSON.stringify(existing);
+    const buckets = splitData(d);
 
-    // POST로 보내기 (URL 길이 제한 회피). text/plain은 CORS preflight 안 일으킴.
+    // 각 시트별 JSON 만들기
+    const payload = {
+      multi: true,
+      buckets: {}
+    };
+    Object.entries(buckets).forEach(([name, content]) => {
+      payload.buckets[name] = JSON.stringify(content);
+    });
+
     const res = await fetch(GAS_URL, {
       method: "POST",
-      body: body,
+      body: JSON.stringify(payload),
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       redirect: "follow"
     });
@@ -205,7 +287,7 @@ async function saveData(d){
       const txt = await res.text();
       try {
         const result = JSON.parse(txt);
-        if (result.ok || result.data !== undefined) {
+        if (result.ok) {
           STORAGE_MODE = "shared";
           LAST_ERROR = "";
           LAST_SAVE_AT = Date.now();
@@ -213,7 +295,6 @@ async function saveData(d){
           return true;
         }
       } catch(e) {
-        // 응답이 JSON 아님 — 저장 성공 여부 불확실
         LAST_ERROR = "응답 파싱 실패: " + txt.slice(0, 100);
       }
     } else {
@@ -225,7 +306,7 @@ async function saveData(d){
   } finally {
     SAVING = false;
   }
-  // 폴백 — 로컬에라도 저장
+  // 로컬 폴백
   try {
     STORAGE_MODE = "local";
     localStorage.setItem(STORE_KEY, JSON.stringify(d));
@@ -234,36 +315,41 @@ async function saveData(d){
 }
 
 async function fetchAll() {
-  try {
-    const res = await fetch(GAS_URL, { method: "GET", redirect: "follow" });
-    if (res.ok) {
-      const j = await res.json();
-      if (j && j.data) return JSON.parse(j.data);
-    }
-  } catch(e) {}
-  return {};
+  // 호환성용 — 새 코드는 loadData 사용
+  return await loadData() || {};
 }
 
 async function loadPin(){
-  try {
-    const all = await fetchAll();
-    if (all[PIN_KEY]) return all[PIN_KEY];
-  } catch(e) {}
+  // PIN은 로컬 캐시 먼저 (loadData 시 캐시됨)
   try {
     const p = localStorage.getItem(PIN_KEY);
     if (p) return p;
+  } catch(e) {}
+  // 못 찾으면 데이터에서
+  try {
+    const d = await loadData();
+    if (d && d[PIN_KEY]) return d[PIN_KEY];
   } catch(e) {}
   return DEFAULT_PIN;
 }
 
 async function savePin(p){
+  // PIN은 data 시트에 직접 저장
   try {
-    const existing = await fetchAll();
-    existing[PIN_KEY] = p;
-    const body = JSON.stringify(existing);
+    const all = await loadData();
+    all[PIN_KEY] = p;
+    const buckets = splitData(all);
+    buckets.data[PIN_KEY] = p; // 명시적
+    const payload = {
+      multi: true,
+      buckets: {}
+    };
+    Object.entries(buckets).forEach(([name, content]) => {
+      payload.buckets[name] = JSON.stringify(content);
+    });
     await fetch(GAS_URL, {
       method: "POST",
-      body: body,
+      body: JSON.stringify(payload),
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       redirect: "follow"
     });
