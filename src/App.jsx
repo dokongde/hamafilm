@@ -115,10 +115,10 @@ const DEFAULT_DATA = {
   expenses: [],         // 지출 기록 [{id, date, category, amount, memo, recurring}]
   historicalData: [],   // 과거 월별 직접 입력 데이터 [{ym, sales, expenses, labor, memo}]
   cancellations: [],    // 직원 취소 기록 [{id, staffId, staffName, date, slotType, reason, cancelledAt, viewed}]
-  // 체크리스트 템플릿: [{id, name, icon, items: [{id, text}], order}]
+  // 체크리스트 템플릿: [{id, name, icon, type: "opening"|"closing"|"all", items, order}]
   checklists: [
     {
-      id: 1, name: "오프닝", icon: "🌅", order: 1,
+      id: 1, name: "오프닝", icon: "🌅", type: "opening", order: 1,
       items: [
         {id: 11, text: "매장 문 열고 조명 켜기"},
         {id: 12, text: "에어컨/난방 켜기"},
@@ -130,7 +130,7 @@ const DEFAULT_DATA = {
       ]
     },
     {
-      id: 2, name: "마감", icon: "🌙", order: 2,
+      id: 2, name: "마감", icon: "🌙", type: "closing", order: 2,
       items: [
         {id: 21, text: "매장 정리 및 청소"},
         {id: 22, text: "카메라/장비 정리"},
@@ -1297,10 +1297,19 @@ function ChecklistManageModal({ data, persist, close, toast }) {
     const name = prompt("체크리스트 이름 (예: 청소, 비품관리)");
     if (!name) return;
     const icon = prompt("이모지 1개 (예: 🧹, 📦, ⚠️)", "📋") || "📋";
+    const typeAns = prompt(
+      "언제 보여줄까요?\n\n" +
+      "1 = 🌅 오프닝 시프트일 때만\n" +
+      "2 = 🌙 클로징 시프트일 때만\n" +
+      "3 = 항상 (오프닝/클로징 상관없이)",
+      "3"
+    );
+    const type = typeAns === "1" ? "opening" : typeAns === "2" ? "closing" : "all";
     const newList = {
       id: Date.now(),
       name,
       icon,
+      type,
       order: (data.checklists||[]).length + 1,
       items: []
     };
@@ -1354,7 +1363,17 @@ function ChecklistManageModal({ data, persist, close, toast }) {
     const name = prompt("이름 변경", editingList.name);
     if (!name) return;
     const icon = prompt("이모지", editingList.icon) || editingList.icon;
-    const updated = {...editingList, name, icon};
+    const curType = editingList.type || "all";
+    const curTypeNum = curType === "opening" ? "1" : curType === "closing" ? "2" : "3";
+    const typeAns = prompt(
+      "언제 보여줄까요?\n\n" +
+      "1 = 🌅 오프닝 시프트일 때만\n" +
+      "2 = 🌙 클로징 시프트일 때만\n" +
+      "3 = 항상",
+      curTypeNum
+    );
+    const type = typeAns === "1" ? "opening" : typeAns === "2" ? "closing" : typeAns === "3" ? "all" : curType;
+    const updated = {...editingList, name, icon, type};
     setEditingList(updated);
     await persist({...data, checklists: (data.checklists||[]).map(c => c.id === editingList.id ? updated : c)});
   };
@@ -1384,6 +1403,17 @@ function ChecklistManageModal({ data, persist, close, toast }) {
                 <div>
                   <span style={{fontSize:18,marginRight:6}}>{cl.icon}</span>
                   <strong>{cl.name}</strong>
+                  <span style={{
+                    fontSize:9,
+                    marginLeft:6,
+                    padding:"2px 6px",
+                    borderRadius:3,
+                    fontWeight:700,
+                    background: cl.type === "opening" ? "rgba(245,197,24,.25)" : cl.type === "closing" ? "rgba(165,94,234,.2)" : "rgba(77,171,247,.15)",
+                    color: cl.type === "opening" ? "#b8860b" : cl.type === "closing" ? "#7950f2" : "#1971c2"
+                  }}>
+                    {cl.type === "opening" ? "🌅 오프닝" : cl.type === "closing" ? "🌙 클로징" : "전체"}
+                  </span>
                   <span style={{fontSize:11,color:"#888",marginLeft:6}}>{cl.items.length}개 항목</span>
                 </div>
                 <div style={{display:"flex",gap:4}}>
@@ -3480,8 +3510,23 @@ export default function App() {
           const lists = data.checklists || [];
           if (lists.length === 0) return null;
           const todayCompletions = (data.completions||[]).filter(c => c.date === today);
-          // 메모가 있는 것들도 표시
           const withNotes = todayCompletions.filter(c => c.note && c.note.trim());
+
+          // 오늘 매장에 등록된 시프트들로 어떤 type이 필요한지 판단
+          const todayShifts = (data.shifts||[]).filter(s => s.date === today);
+          const hasOpening = todayShifts.some(s => s.slotType === "오프닝");
+          const hasClosing = todayShifts.some(s => s.slotType === "클로징");
+
+          // 오늘 필요한 체크리스트만
+          const relevantLists = lists.filter(cl => {
+            const t = cl.type || "all";
+            if (t === "all") return true;
+            if (t === "opening" && hasOpening) return true;
+            if (t === "closing" && hasClosing) return true;
+            return false;
+          });
+
+          if (relevantLists.length === 0 && withNotes.length === 0) return null;
 
           return (
             <div style={{
@@ -3496,11 +3541,12 @@ export default function App() {
                 📋 오늘 체크리스트 ({today})
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {lists.map(cl => {
+                {relevantLists.map(cl => {
                   const completions = todayCompletions.filter(c => c.checklistId === cl.id);
                   const completed = completions.filter(c => c.complete);
                   const inProgress = completions.filter(c => !c.complete && c.checkedItems.length > 0);
                   const status = completed.length > 0 ? "done" : inProgress.length > 0 ? "progress" : "none";
+                  const typeLabel = cl.type === "opening" ? "🌅" : cl.type === "closing" ? "🌙" : "";
                   return (
                     <div key={cl.id} style={{
                       background: status === "done"
@@ -3523,7 +3569,7 @@ export default function App() {
                       fontWeight:600,
                       fontSize:11
                     }}>
-                      {cl.icon} {cl.name}: {completed.length > 0 ? `✓ ${completed.map(c=>c.staffName).join(", ")}` : inProgress.length > 0 ? `진행중 (${inProgress.map(c=>c.staffName).join(", ")})` : "미완료"}
+                      {typeLabel}{cl.icon} {cl.name}: {completed.length > 0 ? `✓ ${completed.map(c=>c.staffName).join(", ")}` : inProgress.length > 0 ? `진행중 (${inProgress.map(c=>c.staffName).join(", ")})` : "미완료"}
                     </div>
                   );
                 })}
@@ -4112,59 +4158,113 @@ export default function App() {
               {/* 체크리스트 + 매뉴얼 카드 */}
               <div className="card">
                 <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📋 일일 체크리스트</div>
-                {(data.checklists||[]).length === 0 ? (
-                  <p style={{color:"#888",fontSize:12}}>체크리스트가 아직 없습니다</p>
-                ) : (
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                    {(data.checklists||[]).sort((a,b)=>(a.order||0)-(b.order||0)).map(cl => {
-                      const today = todayStr();
-                      const myCompletion = (data.completions||[]).find(c =>
-                        c.checklistId === cl.id &&
-                        c.staffId === svSid &&
-                        c.date === today
-                      );
-                      const checkedCount = myCompletion?.checkedItems?.length || 0;
-                      const total = cl.items.length;
-                      const isComplete = myCompletion?.complete;
-                      const inProgress = !isComplete && checkedCount > 0;
-                      return (
-                        <button
-                          key={cl.id}
-                          onClick={()=>setModal({type:"checklistRun", checklistId: cl.id, staffId: svSid})}
-                          style={{
-                            background: isComplete
-                              ? "linear-gradient(135deg, rgba(46,213,115,.15), rgba(77,171,247,.1))"
-                              : inProgress
-                                ? "rgba(245,197,24,.15)"
-                                : "#f5f5f7",
-                            border: isComplete
-                              ? "1.5px solid #2ed573"
-                              : inProgress
-                                ? "1.5px solid #f5c518"
-                                : "1px solid #e0e0e0",
-                            borderRadius: 9,
-                            padding: "12px 10px",
-                            cursor: "pointer",
-                            textAlign: "left",
-                            fontFamily: "'Noto Sans KR', sans-serif"
-                          }}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                            <span style={{fontSize:18}}>{cl.icon}</span>
-                            {isComplete ? (
-                              <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#2ed573",color:"#fff",fontWeight:700}}>✓ 완료</span>
-                            ) : inProgress ? (
-                              <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#f5c518",color:"#000",fontWeight:700}}>진행중</span>
-                            ) : null}
-                          </div>
-                          <div style={{fontSize:13,fontWeight:700,color:"#1a1a1a"}}>{cl.name}</div>
-                          <div style={{fontSize:11,color:"#666",marginTop:3}}>
-                            {checkedCount} / {total}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                {(() => {
+                  const today = todayStr();
+                  // 오늘 내 시프트 가져오기
+                  const myTodayShifts = (data.shifts||[]).filter(s => s.date === today && s.staffId === svSid);
+                  const hasOpening = myTodayShifts.some(s => s.slotType === "오프닝");
+                  const hasClosing = myTodayShifts.some(s => s.slotType === "클로징");
+
+                  // 시간대 필터링
+                  const allLists = (data.checklists||[]).sort((a,b)=>(a.order||0)-(b.order||0));
+                  const filtered = allLists.filter(cl => {
+                    const t = cl.type || "all";
+                    if (t === "all") return true;
+                    if (t === "opening" && hasOpening) return true;
+                    if (t === "closing" && hasClosing) return true;
+                    return false;
+                  });
+
+                  // 안내 메시지
+                  let hint = null;
+                  if (myTodayShifts.length === 0) {
+                    hint = (
+                      <div style={{fontSize:11,color:"#888",padding:"8px 10px",background:"#f5f5f7",borderRadius:6,marginBottom:8}}>
+                        💡 오늘 등록된 시프트가 없어요. 모든 체크리스트를 표시합니다.
+                      </div>
+                    );
+                  } else {
+                    const types = [];
+                    if (hasOpening) types.push("🌅 오프닝");
+                    if (hasClosing) types.push("🌙 클로징");
+                    hint = (
+                      <div style={{fontSize:11,color:"#1971c2",padding:"8px 10px",background:"rgba(77,171,247,.1)",borderRadius:6,marginBottom:8}}>
+                        ✨ 오늘 {types.join(" + ")} 시프트 — 해당 체크리스트만 표시됩니다
+                      </div>
+                    );
+                  }
+
+                  // 시프트 없으면 모두 표시, 있으면 필터링
+                  const toShow = myTodayShifts.length === 0 ? allLists : filtered;
+
+                  if (allLists.length === 0) {
+                    return <p style={{color:"#888",fontSize:12}}>체크리스트가 아직 없습니다</p>;
+                  }
+                  if (toShow.length === 0) {
+                    return (
+                      <>
+                        {hint}
+                        <p style={{color:"#888",fontSize:12,textAlign:"center",padding:10}}>
+                          오늘 시프트에 해당하는 체크리스트가 없습니다
+                        </p>
+                      </>
+                    );
+                  }
+
+                  return (
+                    <>
+                      {hint}
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        {toShow.map(cl => {
+                          const myCompletion = (data.completions||[]).find(c =>
+                            c.checklistId === cl.id &&
+                            c.staffId === svSid &&
+                            c.date === today
+                          );
+                          const checkedCount = myCompletion?.checkedItems?.length || 0;
+                          const total = cl.items.length;
+                          const isComplete = myCompletion?.complete;
+                          const inProgress = !isComplete && checkedCount > 0;
+                          return (
+                            <button
+                              key={cl.id}
+                              onClick={()=>setModal({type:"checklistRun", checklistId: cl.id, staffId: svSid})}
+                              style={{
+                                background: isComplete
+                                  ? "linear-gradient(135deg, rgba(46,213,115,.15), rgba(77,171,247,.1))"
+                                  : inProgress
+                                    ? "rgba(245,197,24,.15)"
+                                    : "#f5f5f7",
+                                border: isComplete
+                                  ? "1.5px solid #2ed573"
+                                  : inProgress
+                                    ? "1.5px solid #f5c518"
+                                    : "1px solid #e0e0e0",
+                                borderRadius: 9,
+                                padding: "12px 10px",
+                                cursor: "pointer",
+                                textAlign: "left",
+                                fontFamily: "'Noto Sans KR', sans-serif"
+                              }}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                                <span style={{fontSize:18}}>{cl.icon}</span>
+                                {isComplete ? (
+                                  <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#2ed573",color:"#fff",fontWeight:700}}>✓ 완료</span>
+                                ) : inProgress ? (
+                                  <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,background:"#f5c518",color:"#000",fontWeight:700}}>진행중</span>
+                                ) : null}
+                              </div>
+                              <div style={{fontSize:13,fontWeight:700,color:"#1a1a1a"}}>{cl.name}</div>
+                              <div style={{fontSize:11,color:"#666",marginTop:3}}>
+                                {checkedCount} / {total}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {/* 매뉴얼 링크 */}
                 {data.settings?.manualUrl ? (
