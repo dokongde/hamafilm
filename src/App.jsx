@@ -113,7 +113,8 @@ const DEFAULT_DATA = {
   payrollRecords: [],
   payments: [],
   expenses: [],         // 지출 기록 [{id, date, category, amount, memo, recurring}]
-  historicalData: []    // 과거 월별 직접 입력 데이터 [{ym, sales, expenses, labor, memo}]
+  historicalData: [],   // 과거 월별 직접 입력 데이터 [{ym, sales, expenses, labor, memo}]
+  cancellations: []     // 직원 취소 기록 [{id, staffId, staffName, date, slotType, reason, cancelledAt, viewed}]
 };
 
 // ═══ Google Apps Script 백엔드 ═══
@@ -2983,6 +2984,83 @@ export default function App() {
             </div>
           </div>
         ) : null}
+        {/* 직원 취소 알림 */}
+        {(() => {
+          const cancellations = (data.cancellations||[]).filter(c => !c.viewed)
+            .sort((a, b) => b.cancelledAt.localeCompare(a.cancelledAt));
+          if (cancellations.length === 0) return null;
+          return (
+            <div style={{
+              background: "rgba(255, 71, 87, 0.12)",
+              border: "1.5px solid #e63946",
+              borderRadius: 8,
+              padding: "10px 12px",
+              marginBottom: 10,
+              fontSize: 12
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                <div style={{color:"#c92a3a", fontWeight:700}}>
+                  🔔 직원 취소 알림 ({cancellations.length}건)
+                </div>
+                <button
+                  className="btn bs sm"
+                  onClick={async () => {
+                    if (!confirm("모든 취소 알림을 확인 처리할까요?")) return;
+                    const updated = (data.cancellations||[]).map(c => ({...c, viewed: true}));
+                    await persist({...data, cancellations: updated});
+                    showToast("모두 확인됨");
+                  }}>
+                  모두 확인
+                </button>
+              </div>
+              {cancellations.slice(0, 5).map(c => {
+                const st = gSt(c.staffId);
+                const time = new Date(c.cancelledAt).toLocaleString("ko-KR", {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+                return (
+                  <div key={c.id} style={{
+                    background:"#fff",
+                    border:"1px solid #ffc1c8",
+                    borderRadius:6,
+                    padding:"8px 10px",
+                    marginBottom:5
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12}}>
+                          <span className="dot" style={{background:st?.color || "#666"}} />
+                          <strong>{c.staffName || st?.name || "?"}</strong>
+                          <span style={{marginLeft:6,color:"#666"}}>
+                            {c.date} <span className={"badge " + (c.slotType==="오프닝"?"bylw":"bgrn")} style={{marginLeft:3}}>{c.slotType}</span>
+                          </span>
+                        </div>
+                        <div style={{fontSize:11,color:"#1a1a1a",marginTop:3,padding:"4px 7px",background:"#f5f5f7",borderRadius:4}}>
+                          💬 {c.reason}
+                        </div>
+                        <div style={{fontSize:10,color:"#888",marginTop:3}}>{time}</div>
+                      </div>
+                      <button
+                        className="btn bs sm"
+                        onClick={async () => {
+                          const updated = (data.cancellations||[]).map(x =>
+                            x.id === c.id ? {...x, viewed: true} : x
+                          );
+                          await persist({...data, cancellations: updated});
+                        }}>
+                        확인
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {cancellations.length > 5 ? (
+                <div style={{fontSize:10,color:"#888",textAlign:"center",marginTop:3}}>
+                  ... +{cancellations.length - 5}건 더 (모두 확인 또는 개별 확인)
+                </div>
+              ) : null}
+            </div>
+          );
+        })()}
+
         {/* 30분 이상 추가/단축 근무 알림 */}
         {(() => {
           // 이번달 시프트 중 출퇴근 체크된 것에서 30분 이상 차이 찾기
@@ -3266,9 +3344,16 @@ export default function App() {
     const slots = getSlots(svDate);
     const taken = (data.shifts||[]).filter(s => s.date===svDate && s.staffId===svSid).map(s => s.slotType);
     const fixedTypes = (data.fixed||[]).filter(f => f.staffId===svSid && f.dows.includes(dow)).map(f => f.type);
-    const ym = curYM();
-    const myS = (data.shifts||[]).filter(s => s.staffId===svSid && s.date.startsWith(ym)).sort((a,b) => a.date.localeCompare(b.date));
-    const allS = (data.shifts||[]).filter(s => s.date.startsWith(ym)).sort((a,b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+    // 직원이 보고 있는 달력의 월
+    const viewYM = `${svCalY}-${String(svCalM+1).padStart(2,"0")}`;
+    // 그 달 + 미래 모든 달의 자기 스케줄을 다 보여줌 (취소도 미래 모두 가능)
+    const today = todayStr();
+    const myS = (data.shifts||[])
+      .filter(s => s.staffId===svSid && s.date >= today)  // 오늘부터의 모든 미래 스케줄
+      .sort((a,b) => a.date.localeCompare(b.date));
+    const allS = (data.shifts||[])
+      .filter(s => s.date.startsWith(viewYM))
+      .sort((a,b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
 
     const doSave = async () => {
       if (!svSid || !svSel) return;
@@ -3290,9 +3375,34 @@ export default function App() {
     };
 
     const doCancel = async (id) => {
-      if (!confirm("취소?")) return;
-      await persist({...data, shifts: (data.shifts||[]).filter(s => s.id !== id)});
-      showToast("취소 완료");
+      const shift = (data.shifts||[]).find(s => s.id === id);
+      if (!shift) return;
+      const reason = prompt(
+        `${shift.date} ${shift.slotType} 스케줄 취소\n\n` +
+        `사장님께 전할 취소 사유를 적어주세요:\n` +
+        `(예: 갑자기 일이 생김, 몸이 안 좋음, 다른 알바생과 교환)`,
+        ""
+      );
+      if (reason === null) return;
+      const me = gSt(svSid);
+      const cancelRecord = {
+        id: Date.now(),
+        staffId: shift.staffId,
+        staffName: me?.name || "?",
+        date: shift.date,
+        slotType: shift.slotType,
+        start: shift.start,
+        end: shift.end,
+        reason: reason.trim() || "(사유 없음)",
+        cancelledAt: new Date().toISOString(),
+        viewed: false
+      };
+      await persist({
+        ...data,
+        shifts: (data.shifts||[]).filter(s => s.id !== id),
+        cancellations: [...(data.cancellations||[]), cancelRecord]
+      });
+      showToast("취소 완료 — 사장님께 전달됨");
     };
 
     return (
@@ -3403,7 +3513,7 @@ export default function App() {
                 ) : null}
               </div>
               <div className="card">
-                <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📌 내 이번달 스케줄</div>
+                <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📌 내 앞으로 스케줄</div>
                 {(() => {
                   const me = gSt(svSid);
                   const wage = me?.wage || 0;
@@ -3553,7 +3663,7 @@ export default function App() {
                   );
                 })()}
                 {myS.length === 0 ? (
-                  <p style={{color:"#888",fontSize:12}}>이번달 등록된 스케줄 없음</p>
+                  <p style={{color:"#888",fontSize:12}}>등록된 스케줄 없음 (오늘 이후)</p>
                 ) : (
                   <table className="tbl">
                     <thead><tr><th>날짜</th><th>타입</th><th>예정</th><th>실제</th><th>출퇴근</th><th>급여</th><th></th></tr></thead>
@@ -3667,16 +3777,15 @@ export default function App() {
             </div>
           )}
           <div className="card">
-            <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📋 이번달 전체 스케줄</div>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:9}}>📋 {viewYM} 전체 스케줄</div>
             {(() => {
-              // 이번달 부족한 날 계산
-              const ymNow = curYM();
-              const [y, m] = ymNow.split("-").map(Number);
+              // 보고 있는 달 부족한 날 계산
+              const [y, m] = viewYM.split("-").map(Number);
               const dim = new Date(y, m, 0).getDate();
               const hols = hessenHols(y);
               const understaffed = [];
               for (let d = 1; d <= dim; d++) {
-                const ds = `${ymNow}-${String(d).padStart(2,"0")}`;
+                const ds = `${viewYM}-${String(d).padStart(2,"0")}`;
                 const dow = new Date(ds).getDay();
                 if (dow === 0 || hols[ds] || isVac(ds)) continue;
                 const cnt = (data.shifts||[]).filter(s => s.date === ds).length;
