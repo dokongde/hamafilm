@@ -3152,14 +3152,14 @@ function StatsTab({ data, setModal }) {
         })()
       ) : (
         // ─── 지출 관리 ───
-        <ExpensesView data={data} stYM={stYM} setStYM={setStYM} setModal={setModal} />
+        <ExpensesView data={data} stYM={stYM} setStYM={setStYM} setModal={setModal} persist={persist} />
       )}
     </div>
   );
 }
 
 // 지출 관리 뷰
-function ExpensesView({ data, stYM, setStYM, setModal }) {
+function ExpensesView({ data, stYM, setStYM, setModal, persist }) {
   const monthExpenses = (data.expenses||[])
     .filter(x => x.date.startsWith(stYM))
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -3172,9 +3172,10 @@ function ExpensesView({ data, stYM, setStYM, setModal }) {
   });
   const total = Object.values(byCategory).reduce((a, b) => a + b, 0);
 
-  const persist = async (nd) => {
-    // ExpensesView에서 직접 persist 호출 못하므로 setModal 통해 우회는 어려움
-    // 대신 props로 받아야 함 — 잠시 부모에서 처리
+  const handleDelete = async (x) => {
+    if (!confirm(`삭제할까요?\n${x.date} ${x.category} €${fmtE(x.amount)}${x.memo ? " — "+x.memo : ""}`)) return;
+    const nd = {...data, expenses: (data.expenses||[]).filter(e => e.id !== x.id)};
+    await persist(nd);
   };
 
   return (
@@ -3235,7 +3236,10 @@ function ExpensesView({ data, stYM, setStYM, setModal }) {
                   <td className="mn" style={{color:"#e63946"}}>€{fmtE(x.amount)}</td>
                   <td style={{color:"#666",fontSize:11}}>{x.memo || "—"}</td>
                   <td>
-                    <button className="btn bs sm" onClick={()=>setModal({type:"expense", edit:x})}>수정</button>
+                    <div style={{display:"flex",gap:4}}>
+                      <button className="btn bs sm" onClick={()=>setModal({type:"expense", edit:x})}>수정</button>
+                      <button className="btn sm" style={{background:"#fff5f5",color:"#e63946",border:"1px solid #fcc"}} onClick={()=>handleDelete(x)}>삭제</button>
+                    </div>
                   </td>
                 </tr>
               ))}
