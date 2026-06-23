@@ -410,7 +410,7 @@ label { font-size: 11px; color: #666; display: block; margin-bottom: 3px; }
 .pos { color: #20a060; font-family: 'Space Mono', monospace; font-weight: 600; }
 .cg { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .cdow { text-align: center; font-size: 10px; color: #888; padding: 4px 0; font-weight: 600; }
-.cday { min-height: 60px; background: #f5f5f7; border-radius: 6px; padding: 4px; cursor: pointer; border: 1px solid transparent; overflow: hidden; }
+.cday { min-height: 60px; background: #f5f5f7; border-radius: 6px; padding: 4px; cursor: pointer; border: 1px solid transparent; overflow: hidden; display: flex; flex-direction: column; }
 .cday:hover { background: #ebebef; }
 .cday.today { border-color: #4dabf7; box-shadow: 0 0 0 1px #4dabf7; }
 .cday.understaffed { background: rgba(255, 212, 0, 0.25); border: 1.5px solid #ffd400; box-shadow: 0 0 8px rgba(255, 212, 0, 0.4); }
@@ -419,6 +419,10 @@ label { font-size: 11px; color: #666; display: block; margin-bottom: 3px; }
 .cday.other { opacity: .35; }
 .dn { font-size: 10px; font-weight: 600; margin-bottom: 1px; color: #666; }
 .sp { font-size: 8px; font-weight: 600; padding: 1px 3px; border-radius: 2px; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
+.spgrp { display: flex; flex-direction: column; gap: 1px; }
+.spgrp-bottom { margin-top: auto; }
+.sp-open { border-left: 2px solid #f5c518; }
+.sp-close { border-left: 2px solid #2ed573; }
 .ov { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 12px; backdrop-filter: blur(2px); }
 .modal { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
 .modal h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #1a1a1a; }
@@ -3753,7 +3757,6 @@ export default function App() {
             const isV = !c.other && isVac(ds);
             const isT = ds === td && !c.other;
             const shifts = (data.shifts||[]).filter(s => s.date === ds);
-            const sorted = [...shifts].sort((a, b) => (a.slotType==="오프닝"?0:1) - (b.slotType==="오프닝"?0:1));
             // 영업일(공휴일·일요일·방학 아닌 날)인데 스케줄이 2개 미만이면 부족 경고
             const isBusinessDay = !c.other && dow !== 0 && !isH && !isV;
             const isUnderstaffed = isBusinessDay && shifts.length < 2;
@@ -3774,24 +3777,37 @@ export default function App() {
                   {c.d}
                   {isUnderstaffed ? <span style={{fontSize:9, color:"#b8860b"}}>⚠️</span> : null}
                 </div>
-                {sorted.slice(0, 4).map(sh => {
-                  const st = gSt(sh.staffId);
-                  const bg = st ? (st.color + "28") : "#333";
-                  const fg = st ? st.color : "#aaa";
-                  const nm = st ? st.name.slice(0, 3) : "?";
+                {(() => {
+                  const openings = shifts.filter(s => s.slotType === "오프닝");
+                  const closings = shifts.filter(s => s.slotType !== "오프닝");
+                  const chip = (sh, cls) => {
+                    const st = gSt(sh.staffId);
+                    const bg = st ? (st.color + "28") : "#333";
+                    const fg = st ? st.color : "#aaa";
+                    const nm = st ? st.name.slice(0, 3) : "?";
+                    return <div key={sh.id} className={"sp " + cls} style={{background:bg, color:fg}}>{nm}</div>;
+                  };
                   return (
-                    <div key={sh.id} className="sp" style={{background:bg, color:fg}}>{nm}</div>
+                    <>
+                      {/* 오프닝 = 위 */}
+                      <div className="spgrp">
+                        {openings.slice(0, 3).map(sh => chip(sh, "sp-open"))}
+                        {openings.length > 3 ? <div style={{fontSize:7,color:"#888"}}>+{openings.length-3}</div> : null}
+                        {isUnderstaffed && shifts.length === 0 ? (
+                          <div style={{fontSize:8, color:"#b8860b", fontWeight:700, marginTop:1}}>비어있음</div>
+                        ) : null}
+                        {isUnderstaffed && shifts.length === 1 ? (
+                          <div style={{fontSize:8, color:"#b8860b", fontWeight:700, marginTop:1}}>1명만</div>
+                        ) : null}
+                      </div>
+                      {/* 클로징 = 아래 */}
+                      <div className="spgrp spgrp-bottom">
+                        {closings.slice(0, 3).map(sh => chip(sh, "sp-close"))}
+                        {closings.length > 3 ? <div style={{fontSize:7,color:"#888"}}>+{closings.length-3}</div> : null}
+                      </div>
+                    </>
                   );
-                })}
-                {shifts.length > 4 ? (
-                  <div style={{fontSize:7,color:"#888"}}>+{shifts.length-4}</div>
-                ) : null}
-                {isUnderstaffed && shifts.length === 0 ? (
-                  <div style={{fontSize:8, color:"#b8860b", fontWeight:700, marginTop:1}}>비어있음</div>
-                ) : null}
-                {isUnderstaffed && shifts.length === 1 ? (
-                  <div style={{fontSize:8, color:"#b8860b", fontWeight:700, marginTop:1}}>1명만</div>
-                ) : null}
+                })()}
               </div>
             );
           })}
@@ -4653,7 +4669,6 @@ export default function App() {
                       const isT = ds === td && !c.other;
                       const isSelected = ds === svDate && !c.other;
                       const shifts = (data.shifts||[]).filter(s => s.date === ds);
-                      const sorted = [...shifts].sort((a, b) => (a.slotType==="오프닝"?0:1) - (b.slotType==="오프닝"?0:1));
                       const isBusinessDay = !c.other && dow !== 0 && !isH && !isV;
                       const isUnderstaffed = isBusinessDay && shifts.length < 2;
                       const myRegistered = svSid && shifts.some(s => s.staffId === svSid);
@@ -4685,18 +4700,31 @@ export default function App() {
                             {myRegistered ? <span style={{fontSize:8, color:"#4dabf7"}}>★</span> : null}
                             {isUnderstaffed ? <span style={{fontSize:9, color:"#b8860b"}}>⚠️</span> : null}
                           </div>
-                          {sorted.slice(0, 4).map(sh => {
-                            const st = gSt(sh.staffId);
-                            const bg = st ? (st.color + "28") : "#ddd";
-                            const fg = st ? st.color : "#888";
-                            const nm = st ? st.name.slice(0, 3) : "?";
+                          {(() => {
+                            const openings = shifts.filter(s => s.slotType === "오프닝");
+                            const closings = shifts.filter(s => s.slotType !== "오프닝");
+                            const chip = (sh, cls) => {
+                              const st = gSt(sh.staffId);
+                              const bg = st ? (st.color + "28") : "#ddd";
+                              const fg = st ? st.color : "#888";
+                              const nm = st ? st.name.slice(0, 3) : "?";
+                              return <div key={sh.id} className={"sp " + cls} style={{background:bg, color:fg}}>{nm}</div>;
+                            };
                             return (
-                              <div key={sh.id} className="sp" style={{background:bg, color:fg}}>{nm}</div>
+                              <>
+                                {/* 오프닝 = 위 */}
+                                <div className="spgrp">
+                                  {openings.slice(0, 3).map(sh => chip(sh, "sp-open"))}
+                                  {openings.length > 3 ? <div style={{fontSize:7,color:"#888"}}>+{openings.length-3}</div> : null}
+                                </div>
+                                {/* 클로징 = 아래 */}
+                                <div className="spgrp spgrp-bottom">
+                                  {closings.slice(0, 3).map(sh => chip(sh, "sp-close"))}
+                                  {closings.length > 3 ? <div style={{fontSize:7,color:"#888"}}>+{closings.length-3}</div> : null}
+                                </div>
+                              </>
                             );
-                          })}
-                          {shifts.length > 4 ? (
-                            <div style={{fontSize:7,color:"#888"}}>+{shifts.length-4}</div>
-                          ) : null}
+                          })()}
                         </div>
                       );
                     })}
