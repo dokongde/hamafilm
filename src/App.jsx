@@ -69,6 +69,20 @@ function dowKo(s){return DOW_KO[new Date(s).getDay()];}
 function todayStr(){return dstr(new Date());}
 function curYM(){const n=new Date();return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;}
 function nextYM(ym){const [y,m]=ym.split("-").map(Number);return m===12?`${y+1}-01`:`${y}-${String(m+1).padStart(2,"0")}`;}
+function prevYM(ym){const [y,m]=ym.split("-").map(Number);return m===1?`${y-1}-12`:`${y}-${String(m-1).padStart(2,"0")}`;}
+// 지난달 조정(차감/추가)이 이번달(ym)에 반영될 레코드를 찾아 부호화된 carry-in 금액을 돌려준다.
+// 차감 → 음수, 추가지급 → 양수, 없으면 0. (실정산 = actualAmount + carryIn)
+function getCarryIn(records, staffId, ym){
+  const adj = (records||[]).find(p =>
+    p.staffId === staffId &&
+    p.adjType && p.adjType !== "없음" &&
+    p.adjAmount > 0 &&
+    nextYM(p.ym) === ym
+  );
+  if (!adj) return { amount: 0, isAdd: false, desc: "", rec: null };
+  const isAdd = adj.adjType === "추가지급" || adj.adjType === "추가";
+  return { amount: isAdd ? adj.adjAmount : -adj.adjAmount, isAdd, desc: adj.adjDesc || "", rec: adj };
+}
 function fmtE(n){return Number(n||0).toFixed(2);}
 function fmt(n){return Number(n||0).toLocaleString("ko-KR");}
 function nid(arr){return arr.length?Math.max(...arr.map(x=>x.id))+1:1;}
@@ -1019,6 +1033,7 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
   const [sid, setSid] = useState(rec?.staffId || data.staff[0]?.id || 1);
   const [ym, setYm] = useState(rec?.ym || modal.ym || curYM());
   const [amount, setAmount] = useState(rec?.amount || "");
+  const [actualAmount, setActualAmount] = useState(rec?.actualAmount ?? "");
   const [hours, setHours] = useState(rec?.hours || "");
   const [adjType, setAdjType] = useState(() => {
     const t = rec?.adjType || "없음";
@@ -1027,14 +1042,30 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
   });
   const [adjAmt, setAdjAmt] = useState(rec?.adjAmount || "");
   const [adjDesc, setAdjDesc] = useState(rec?.adjDesc || "");
+  const [autoCarry, setAutoCarry] = useState(rec ? (rec.carryToNext != null) : true);
   const shifts = (data.shifts||[]).filter(s => s.staffId===sid && s.date.startsWith(ym));
   let refH = 0;
   shifts.forEach(s => { refH += shiftHours(s); });
   const st = gSt(sid);
   const refPay = fmtE(refH * (st?.wage || 0));
-  const hasAdj = adjType !== "없음" && parseFloat(adjAmt) > 0;
-  const adjSign = adjType === "추가지급" ? "+" : "-";
-  const adjCol = adjType === "추가지급" ? "#20a060" : "#e63946";
+
+  // ── 실근무 정산액 기반 자동 이월 계산 ──
+  // 실정산 = 실근무정산액 + 전월 carry-in(차감은 음수)
+  // 차월이월 = 확정급여 − 실정산  (양수면 다음달 차감, 음수면 다음달 추가지급)
+  const carryIn = getCarryIn(data.payrollRecords, sid, ym); // {amount(부호), isAdd, desc}
+  const hasActual = actualAmount !== "" && !isNaN(parseFloat(actualAmount));
+  const settleNow = hasActual ? (parseFloat(actualAmount) + carryIn.amount) : null; // 이번달 실정산
+  const carryRaw = (hasActual && amount !== "") ? (parseFloat(amount) - settleNow) : 0; // 확정 − 실정산
+  // 부동소수 보정 (예: 51.330000001 → 51.33)
+  const carryToNext = Math.round(carryRaw * 100) / 100;
+
+  // 자동모드면 위 계산값으로 adjType/adjAmt를 덮어쓴다
+  const effAdjType = autoCarry && hasActual ? (carryToNext >= 0 ? "차감" : "추가지급") : adjType;
+  const effAdjAmt = autoCarry && hasActual ? Math.abs(carryToNext) : (parseFloat(adjAmt) || 0);
+
+  const hasAdj = effAdjType !== "없음" && effAdjAmt > 0;
+  const adjSign = effAdjType === "추가지급" ? "+" : "-";
+  const adjCol = effAdjType === "추가지급" ? "#20a060" : "#e63946";
 
   const save = async () => {
     if (!amount) { toast("확정급여 입력"); return; }
@@ -1042,10 +1073,12 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
       id: rec ? rec.id : nid(data.payrollRecords||[]),
       staffId: sid, ym,
       amount: parseFloat(amount),
+      actualAmount: hasActual ? parseFloat(actualAmount) : null,
       hours: parseFloat(hours) || 0,
-      adjType,
-      adjAmount: parseFloat(adjAmt) || 0,
-      adjDesc,
+      adjType: effAdjType,
+      adjAmount: effAdjAmt > 0 ? Math.round(effAdjAmt * 100) / 100 : 0,
+      adjDesc: (autoCarry && hasActual && !adjDesc) ? "실근무 정산 차액 이월" : adjDesc,
+      carryToNext: (autoCarry && hasActual) ? carryToNext : null,
       savedAt: new Date().toISOString()
     };
     let nd;
@@ -1080,7 +1113,7 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
         </div>
         <div className="fr fc2">
           <div>
-            <label>확정 급여 (€)</label>
+            <label>확정 급여 (€) <span style={{fontSize:9,color:"#888"}}>명세서</span></label>
             <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} step="0.01" placeholder={refPay} />
           </div>
           <div>
@@ -1088,34 +1121,60 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
             <input type="number" value={hours} onChange={e=>setHours(e.target.value)} step="0.5" placeholder={String(refH)} />
           </div>
         </div>
-        <div style={{fontSize:11,fontWeight:700,color:"#d94c1a",margin:"8px 0 5px"}}>⚖️ 조정 (다음달 반영)</div>
-        <div className="fr fc2">
+        <div className="fr">
           <div>
-            <label>유형</label>
-            <select value={adjType} onChange={e=>setAdjType(e.target.value)}>
-              <option value="없음">없음</option>
-              <option value="추가지급">➕ 추가지급 (이번달 더 일함 → 다음달 더 줌)</option>
-              <option value="차감">➖ 차감 (이번달 덜 일함 → 다음달 덜 줌)</option>
-            </select>
-          </div>
-          <div>
-            <label>금액 (€)</label>
-            <input type="number" value={adjAmt} onChange={e=>setAdjAmt(e.target.value)} step="0.01" placeholder="0.00" />
+            <label>실근무 정산액 (€) <span style={{fontSize:9,color:"#888"}}>실제 받을 금액 (선택)</span></label>
+            <input type="number" value={actualAmount} onChange={e=>setActualAmount(e.target.value)} step="0.01" placeholder={refPay} />
           </div>
         </div>
+        {carryIn.amount !== 0 ? (
+          <div style={{fontSize:11,color:"#666",margin:"2px 0 6px"}}>
+            ↪ 지난달 {carryIn.isAdd ? "추가지급" : "차감"} <strong style={{color: carryIn.isAdd ? "#20a060" : "#e63946"}}>{carryIn.isAdd ? "+" : "-"}€{fmtE(Math.abs(carryIn.amount))}</strong> 이번달 반영
+          </div>
+        ) : null}
+        <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#1971c2",fontWeight:600,margin:"6px 0"}}>
+          <input type="checkbox" checked={autoCarry} onChange={e=>setAutoCarry(e.target.checked)} style={{width:"auto"}} />
+          🔄 차월 이월 자동 계산 (확정 − 실정산)
+        </label>
+        {!autoCarry ? (
+          <>
+            <div style={{fontSize:11,fontWeight:700,color:"#d94c1a",margin:"8px 0 5px"}}>⚖️ 조정 (다음달 반영) · 수동</div>
+            <div className="fr fc2">
+              <div>
+                <label>유형</label>
+                <select value={adjType} onChange={e=>setAdjType(e.target.value)}>
+                  <option value="없음">없음</option>
+                  <option value="추가지급">➕ 추가지급 (이번달 더 일함 → 다음달 더 줌)</option>
+                  <option value="차감">➖ 차감 (이번달 덜 일함 → 다음달 덜 줌)</option>
+                </select>
+              </div>
+              <div>
+                <label>금액 (€)</label>
+                <input type="number" value={adjAmt} onChange={e=>setAdjAmt(e.target.value)} step="0.01" placeholder="0.00" />
+              </div>
+            </div>
+          </>
+        ) : null}
         <div className="fr">
           <div>
             <label>사유</label>
-            <input value={adjDesc} onChange={e=>setAdjDesc(e.target.value)} placeholder="예: 미근무 차감" />
+            <input value={adjDesc} onChange={e=>setAdjDesc(e.target.value)} placeholder={autoCarry ? "비우면 자동: 실근무 정산 차액 이월" : "예: 미근무 차감"} />
           </div>
         </div>
         {parseFloat(amount) > 0 ? (
-          <div style={{background:"rgba(245,197,24,.08)",border:"1px solid rgba(245,197,24,.3)",borderRadius:7,padding:"8px 11px",fontSize:12}}>
-            확정: <strong style={{color:"#4ecdc4"}}>€{fmtE(parseFloat(amount))}</strong>
+          <div style={{background:"rgba(245,197,24,.08)",border:"1px solid rgba(245,197,24,.3)",borderRadius:7,padding:"8px 11px",fontSize:12,lineHeight:1.7}}>
+            <div>확정(명세서): <strong style={{color:"#4ecdc4"}}>€{fmtE(parseFloat(amount))}</strong></div>
+            {hasActual ? (
+              <div>이번달 실정산: <strong style={{color:"#1971c2"}}>€{fmtE(settleNow)}</strong>
+                <span style={{fontSize:10,color:"#888",marginLeft:5}}>
+                  (실근무 €{fmtE(parseFloat(actualAmount))}{carryIn.amount !== 0 ? ` ${carryIn.amount<0?"−":"+"} €${fmtE(Math.abs(carryIn.amount))}` : ""})
+                </span>
+              </div>
+            ) : null}
             {hasAdj ? (
-              <span style={{marginLeft:8}}>
-                {nextYM(ym)} 조정: <strong style={{color:adjCol}}>{adjSign}€{fmtE(parseFloat(adjAmt))}</strong>
-              </span>
+              <div>{nextYM(ym)} 이월: <strong style={{color:adjCol}}>{adjSign}€{fmtE(effAdjAmt)}</strong>
+                <span style={{fontSize:10,color:"#888",marginLeft:5}}>{effAdjType==="차감"?"(다음달 차감)":"(다음달 추가)"}</span>
+              </div>
             ) : null}
           </div>
         ) : null}
@@ -2107,21 +2166,37 @@ function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
       <div className="modal">
         <h3>💰 {st?.name} · {modal.ym} 급여 지급</h3>
         <div style={{background:"#f5f5f7",borderRadius:7,padding:"10px 12px",fontSize:12,color:"#666",marginBottom:12}}>
-          {modal.adjustment ? (
+          {(modal.adjustment || modal.settleNow != null || (modal.carryOut != null && Math.abs(modal.carryOut) > 0)) ? (
             <>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <span>이번달 기본 급여</span>
-                <strong className="mn" style={{color:"#1a1a1a"}}>€{fmtE(modal.baseAmount || 0)}</strong>
+                <span>{modal.settleNow != null ? "확정 (명세서)" : "이번달 기본 급여"}</span>
+                <strong className="mn" style={{color:"#1a1a1a"}}>€{fmtE(modal.settleNow != null ? (modal.defaultAmount || 0) : (modal.baseAmount || 0))}</strong>
               </div>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <span>
-                  지난달 {modal.adjustment.isAdd ? "추가지급" : "차감"}
-                  {modal.adjustment.desc ? <span style={{fontSize:10,color:"#888",marginLeft:4}}>({modal.adjustment.desc})</span> : null}
-                </span>
-                <strong className="mn" style={{color: modal.adjustment.isAdd ? "#20a060" : "#e63946"}}>
-                  {modal.adjustment.isAdd ? "+" : "-"}€{fmtE(modal.adjustment.amount)}
-                </strong>
-              </div>
+              {modal.adjustment ? (
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span>
+                    지난달 {modal.adjustment.isAdd ? "추가지급" : "차감"}
+                    {modal.adjustment.desc ? <span style={{fontSize:10,color:"#888",marginLeft:4}}>({modal.adjustment.desc})</span> : null}
+                  </span>
+                  <strong className="mn" style={{color: modal.adjustment.isAdd ? "#20a060" : "#e63946"}}>
+                    {modal.adjustment.isAdd ? "+" : "-"}€{fmtE(modal.adjustment.amount)}
+                  </strong>
+                </div>
+              ) : null}
+              {modal.settleNow != null ? (
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span>이번달 실정산</span>
+                  <strong className="mn" style={{color:"#1971c2"}}>€{fmtE(modal.settleNow)}</strong>
+                </div>
+              ) : null}
+              {modal.carryOut != null && Math.abs(modal.carryOut) > 0 ? (
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span>다음달 이월 {modal.carryOut >= 0 ? "(차감)" : "(추가지급)"}</span>
+                  <strong className="mn" style={{color: modal.carryOut >= 0 ? "#e63946" : "#20a060"}}>
+                    {modal.carryOut >= 0 ? "-" : "+"}€{fmtE(Math.abs(modal.carryOut))}
+                  </strong>
+                </div>
+              ) : null}
               <div style={{display:"flex",justifyContent:"space-between",paddingTop:5,marginTop:5,borderTop:"1.5px solid #d0d0d0"}}>
                 <strong style={{color:"#1971c2"}}>최종 지급액</strong>
                 <strong className="mn" style={{color:"#1971c2",fontSize:14}}>€{fmtE(modal.defaultAmount || 0)}</strong>
@@ -2361,18 +2436,22 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                 const status = pay ? (pay.status || (pay.paid ? "paid" : "none")) : "none";
                 const paid = status === "paid";
                 const ready = status === "ready";
-                // 지난달 조정이 이번달에 반영될 것 찾기
-                const adjustment = (data.payrollRecords||[]).find(p =>
-                  p.staffId === r.st.id &&
-                  p.adjType && p.adjType !== "없음" &&
-                  p.adjAmount > 0 &&
-                  nextYM(p.ym) === salYM
-                );
-                const isAdd = adjustment && (adjustment.adjType === "추가지급" || adjustment.adjType === "추가");
-                const adjAmt = adjustment ? adjustment.adjAmount : 0;
-                const finalPay = adjustment
-                  ? (isAdd ? r.pay + adjAmt : r.pay - adjAmt)
-                  : r.pay;
+                // 이번달 급여 레코드(확정/실근무) — 회계사 리포트
+                const myRec = (data.payrollRecords||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
+                // 지난달 조정이 이번달에 반영될 carry-in (차감 음수 / 추가 양수)
+                const ci = getCarryIn(data.payrollRecords, r.st.id, salYM);
+                const adjustment = ci.rec;
+                const isAdd = ci.isAdd;
+                const adjAmt = Math.abs(ci.amount);
+                // 명세서 확정값(있으면) 아니면 스케줄급여
+                const baseConfirm = (myRec && myRec.amount != null) ? myRec.amount : r.pay;
+                // 실근무 정산액(있으면) 아니면 스케줄급여 — 여기에 carry-in 반영
+                const actualBase = (myRec && myRec.actualAmount != null) ? myRec.actualAmount : r.pay;
+                const hasActual = myRec && myRec.actualAmount != null;
+                const settleNow = actualBase + ci.amount; // 이번달 실정산
+                // 표시 지급액: 확정값 기준(명세서대로 지급), 레코드 없으면 스케줄±carry-in
+                const finalPay = myRec ? baseConfirm : (actualBase + ci.amount);
+                const carryOut = (myRec && myRec.carryToNext != null) ? myRec.carryToNext : null;
                 return (
                   <tr key={r.st.id}>
                     <td>
@@ -2381,12 +2460,21 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                     </td>
                     <td className="mn" style={{color:paid?"#888":"#1971c2",fontWeight:600,textDecoration:paid?"line-through":"none"}}>
                       €{pay ? fmtE(pay.amount || finalPay) : fmtE(finalPay)}
-                      {adjustment ? (
-                        <div style={{fontSize:10,fontWeight:400,color:"#888",marginTop:2}}>
-                          기본 €{fmtE(r.pay)} {isAdd ? "+" : "-"} €{fmtE(adjAmt)}
-                          <span style={{color: isAdd ? "#20a060" : "#e63946", marginLeft:4, fontSize:9}}>
-                            {isAdd ? "(추가지급)" : "(차감)"}
-                          </span>
+                      {(hasActual || adjustment || carryOut != null) ? (
+                        <div style={{fontSize:10,fontWeight:400,color:"#888",marginTop:2,lineHeight:1.6}}>
+                          {hasActual ? (
+                            <div>확정 <strong style={{color:"#4ecdc4"}}>€{fmtE(baseConfirm)}</strong> · 실정산 <strong style={{color:"#1971c2"}}>€{fmtE(settleNow)}</strong></div>
+                          ) : adjustment ? (
+                            <div>기본 €{fmtE(r.pay)} {isAdd ? "+" : "-"} €{fmtE(adjAmt)}
+                              <span style={{color: isAdd ? "#20a060" : "#e63946", marginLeft:4, fontSize:9}}>{isAdd ? "(추가지급)" : "(차감)"}</span>
+                            </div>
+                          ) : null}
+                          {adjustment ? (
+                            <div>↪ 지난달 {isAdd?"추가":"차감"} {isAdd?"+":"-"}€{fmtE(adjAmt)} 반영</div>
+                          ) : null}
+                          {carryOut != null && Math.abs(carryOut) > 0 ? (
+                            <div>↩ {nextYM(salYM)} 이월 <strong style={{color: carryOut>=0 ? "#e63946" : "#20a060"}}>{carryOut>=0 ? "-" : "+"}€{fmtE(Math.abs(carryOut))}</strong></div>
+                          ) : null}
                         </div>
                       ) : null}
                     </td>
@@ -2420,6 +2508,8 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                           ym:salYM,
                           defaultAmount:finalPay,
                           baseAmount: r.pay,
+                          settleNow: hasActual ? settleNow : null,
+                          carryOut,
                           adjustment: adjustment ? {
                             isAdd, amount: adjAmt, desc: adjustment.adjDesc
                           } : null
@@ -2443,7 +2533,7 @@ function SalaryTab({ data, persist, setModal, gSt }) {
           <p style={{color:"#888",fontSize:12}}>없음</p>
         ) : (
           <table className="tbl">
-            <thead><tr><th>직원</th><th>월</th><th>시간</th><th>확정급여</th><th>조정</th><th>반영월</th><th></th></tr></thead>
+            <thead><tr><th>직원</th><th>월</th><th>확정급여</th><th>실근무</th><th>조정</th><th>반영월</th><th></th></tr></thead>
             <tbody>
               {prSorted.map(p => {
                 const st = gSt(p.staffId);
@@ -2455,8 +2545,8 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                   <tr key={p.id}>
                     <td><span className="dot" style={{background:st?.color||"#666"}} />{st?.name||"?"}</td>
                     <td style={{fontWeight:600}}>{p.ym}</td>
-                    <td className="mn">{p.hours||"—"}h</td>
                     <td className="mn" style={{color:"#1971c2"}}>€{fmtE(p.amount)}</td>
+                    <td className="mn" style={{color:"#888"}}>{p.actualAmount != null ? "€"+fmtE(p.actualAmount) : "—"}</td>
                     <td className="mn" style={{color:ha?ac:"#888"}}>{ha ? (as+"€"+fmtE(p.adjAmount)) : "—"}</td>
                     <td style={{fontSize:11,color:"#d94c1a"}}>{ha ? nextYM(p.ym) : "—"}</td>
                     <td>
@@ -4325,16 +4415,16 @@ export default function App() {
                     monthShifts.forEach(s => { h += shiftHours(s); });
                     const basePay = h * wage;
 
-                    // 지난달의 조정이 이 달에 반영
-                    const adj = (data.payrollRecords||[]).find(p =>
-                      p.staffId === svSid &&
-                      p.adjType && p.adjType !== "없음" &&
-                      p.adjAmount > 0 &&
-                      nextYM(p.ym) === ym
-                    );
-                    const isAdd = adj && (adj.adjType === "추가지급" || adj.adjType === "추가");
-                    const adjAmt = adj ? adj.adjAmount : 0;
-                    const finalPay = adj ? (isAdd ? basePay + adjAmt : basePay - adjAmt) : basePay;
+                    // 이번달 급여 레코드(확정/실근무)
+                    const myRec = (data.payrollRecords||[]).find(p => p.staffId===svSid && p.ym===ym);
+                    // 지난달의 조정이 이 달에 반영 (carry-in: 차감 음수 / 추가 양수)
+                    const ci = getCarryIn(data.payrollRecords, svSid, ym);
+                    const adj = ci.rec;
+                    const isAdd = ci.isAdd;
+                    const adjAmt = Math.abs(ci.amount);
+                    // 확정값(명세서)이 있으면 그걸 지급액으로, 없으면 스케줄급여±carry-in
+                    const baseConfirm = (myRec && myRec.amount != null) ? myRec.amount : basePay;
+                    const finalPay = myRec ? baseConfirm : (basePay + ci.amount);
 
                     const payment = (data.payments||[]).find(p =>
                       p.staffId === svSid && p.ym === ym
@@ -4345,7 +4435,7 @@ export default function App() {
 
                     return {
                       ym, hours: h, basePay, finalPay,
-                      adjustment: adj ? {isAdd, amount: adjAmt, desc: adj.adjDesc} : null,
+                      adjustment: adj ? {isAdd, amount: adjAmt, desc: adj.desc} : null,
                       payment,
                       status,
                       isPaid: status === "paid",
