@@ -1047,14 +1047,18 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
   let refH = 0;
   shifts.forEach(s => { refH += shiftHours(s); });
   const st = gSt(sid);
-  const refPay = fmtE(refH * (st?.wage || 0));
+  const refPayNum = refH * (st?.wage || 0); // 그 달 스케줄 기준 근무 총액 (숫자)
+  const refPay = fmtE(refPayNum);
 
   // ── 실근무 정산액 기반 자동 이월 계산 ──
   // 실정산 = 실근무정산액 + 전월 carry-in(차감은 음수)
   // 차월이월 = 확정급여 − 실정산  (양수면 다음달 차감, 음수면 다음달 추가지급)
   const carryIn = getCarryIn(data.payrollRecords, sid, ym); // {amount(부호), isAdd, desc}
-  const hasActual = actualAmount !== "" && !isNaN(parseFloat(actualAmount));
-  const settleNow = hasActual ? (parseFloat(actualAmount) + carryIn.amount) : null; // 이번달 실정산
+  // 실근무 정산액: 직접 입력했으면 그 값, 비워두면 그 달 근무 총액(스케줄 기준)을 자동 사용
+  const userTypedActual = actualAmount !== "" && !isNaN(parseFloat(actualAmount));
+  const effActual = userTypedActual ? parseFloat(actualAmount) : refPayNum; // 계산에 쓰는 실근무액
+  const hasActual = userTypedActual || refPayNum > 0; // 자동값이라도 있으면 계산 진행
+  const settleNow = hasActual ? (effActual + carryIn.amount) : null; // 이번달 실정산(전월 반영 후)
   const carryRaw = (hasActual && amount !== "") ? (parseFloat(amount) - settleNow) : 0; // 확정 − 실정산
   // 부동소수 보정 (예: 51.330000001 → 51.33)
   const carryToNext = Math.round(carryRaw * 100) / 100;
@@ -1073,7 +1077,7 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
       id: rec ? rec.id : nid(data.payrollRecords||[]),
       staffId: sid, ym,
       amount: parseFloat(amount),
-      actualAmount: hasActual ? parseFloat(actualAmount) : null,
+      actualAmount: hasActual ? Math.round(effActual * 100) / 100 : null,
       hours: parseFloat(hours) || 0,
       adjType: effAdjType,
       adjAmount: effAdjAmt > 0 ? Math.round(effAdjAmt * 100) / 100 : 0,
@@ -1107,9 +1111,24 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
             <input type="month" value={ym} onChange={e=>setYm(e.target.value)} />
           </div>
         </div>
-        <div style={{background:"#f5f5f7",borderRadius:7,padding:"8px 11px",fontSize:12,color:"#888",marginBottom:10}}>
-          스케줄 기준: <strong>{refH}h</strong> · <strong style={{color:"#f5c518"}}>€{refPay}</strong>
-          <span style={{fontSize:10,color:"#888",marginLeft:6}}>(참고)</span>
+        <div style={{background:"#eef6ff",border:"1px solid rgba(25,113,194,.22)",borderRadius:8,padding:"9px 12px",fontSize:12,marginBottom:10,lineHeight:1.85}}>
+          <div style={{display:"flex",justifyContent:"space-between"}}>
+            <span style={{color:"#666"}}>그 달 근무 총액 <span style={{fontSize:10,color:"#999"}}>({refH}h)</span></span>
+            <strong className="mn" style={{color:"#1a1a1a"}}>€{refPay}</strong>
+          </div>
+          {carryIn.amount !== 0 ? (
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:"#666"}}>지난달 {carryIn.isAdd ? "추가지급" : "차감"}{carryIn.desc ? <span style={{fontSize:10,color:"#999",marginLeft:4}}>({carryIn.desc})</span> : null}</span>
+              <strong className="mn" style={{color: carryIn.isAdd ? "#20a060" : "#e63946"}}>{carryIn.isAdd ? "+" : "-"}€{fmtE(Math.abs(carryIn.amount))}</strong>
+            </div>
+          ) : null}
+          <div style={{display:"flex",justifyContent:"space-between",paddingTop:5,marginTop:4,borderTop:"1.5px solid rgba(25,113,194,.25)"}}>
+            <strong style={{color:"#1971c2"}}>→ 반영 후 금액</strong>
+            <strong className="mn" style={{color:"#1971c2",fontSize:15}}>€{fmtE(settleNow != null ? settleNow : refPayNum)}</strong>
+          </div>
+          {userTypedActual ? (
+            <div style={{fontSize:10,color:"#999",marginTop:2}}>※ 실근무 정산액을 직접 입력함(€{fmtE(parseFloat(actualAmount))}) — 근무 총액 대신 사용</div>
+          ) : null}
         </div>
         <div className="fr fc2">
           <div>
@@ -1123,15 +1142,10 @@ function AddPayrollModal({ modal, data, persist, close, toast, gSt }) {
         </div>
         <div className="fr">
           <div>
-            <label>실근무 정산액 (€) <span style={{fontSize:9,color:"#888"}}>실제 받을 금액 (선택)</span></label>
-            <input type="number" value={actualAmount} onChange={e=>setActualAmount(e.target.value)} step="0.01" placeholder={refPay} />
+            <label>실근무 정산액 (€) <span style={{fontSize:9,color:"#888"}}>비우면 근무 총액 €{refPay} 자동 사용</span></label>
+            <input type="number" value={actualAmount} onChange={e=>setActualAmount(e.target.value)} step="0.01" placeholder={"자동: €"+refPay} />
           </div>
         </div>
-        {carryIn.amount !== 0 ? (
-          <div style={{fontSize:11,color:"#666",margin:"2px 0 6px"}}>
-            ↪ 지난달 {carryIn.isAdd ? "추가지급" : "차감"} <strong style={{color: carryIn.isAdd ? "#20a060" : "#e63946"}}>{carryIn.isAdd ? "+" : "-"}€{fmtE(Math.abs(carryIn.amount))}</strong> 이번달 반영
-          </div>
-        ) : null}
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#1971c2",fontWeight:600,margin:"6px 0"}}>
           <input type="checkbox" checked={autoCarry} onChange={e=>setAutoCarry(e.target.checked)} style={{width:"auto"}} />
           🔄 차월 이월 자동 계산 (확정 − 실정산)
@@ -2541,12 +2555,20 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                 const isAdd = p.adjType === "추가지급" || p.adjType === "추가";
                 const ac = isAdd ? "#20a060" : "#e63946";
                 const as = isAdd ? "+" : "-";
+                // 이 레코드 달의 전월 반영(carry-in) → 반영 후 금액
+                const rci = getCarryIn(data.payrollRecords, p.staffId, p.ym);
+                const afterCarry = p.actualAmount != null ? (p.actualAmount + rci.amount) : null;
                 return (
                   <tr key={p.id}>
                     <td><span className="dot" style={{background:st?.color||"#666"}} />{st?.name||"?"}</td>
                     <td style={{fontWeight:600}}>{p.ym}</td>
                     <td className="mn" style={{color:"#1971c2"}}>€{fmtE(p.amount)}</td>
-                    <td className="mn" style={{color:"#888"}}>{p.actualAmount != null ? "€"+fmtE(p.actualAmount) : "—"}</td>
+                    <td className="mn" style={{color:"#888"}}>
+                      {p.actualAmount != null ? "€"+fmtE(p.actualAmount) : "—"}
+                      {p.actualAmount != null && rci.amount !== 0 ? (
+                        <div style={{fontSize:9,color:"#999",fontWeight:400}}>지난달 {rci.isAdd?"+":"-"}€{fmtE(Math.abs(rci.amount))} → €{fmtE(afterCarry)}</div>
+                      ) : null}
+                    </td>
                     <td className="mn" style={{color:ha?ac:"#888"}}>{ha ? (as+"€"+fmtE(p.adjAmount)) : "—"}</td>
                     <td style={{fontSize:11,color:"#d94c1a"}}>{ha ? nextYM(p.ym) : "—"}</td>
                     <td>
