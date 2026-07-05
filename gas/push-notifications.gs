@@ -50,7 +50,7 @@ function handlePushAction_(body) {
 }
 
 function getPushSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID); // 독립형 스크립트라 ID로 직접 연다 (SHEET_ID는 Code.gs 전역)
   var sh = ss.getSheetByName(PUSH_SHEET_NAME);
   if (!sh) {
     sh = ss.insertSheet(PUSH_SHEET_NAME);
