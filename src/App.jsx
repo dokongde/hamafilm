@@ -675,8 +675,12 @@ function AddShiftModal({ modal, data, persist, close, toast, gSt, isVac, vacName
     } else {
       const slot = slots.find(s => s.type === sel);
       if (!slot) return;
-      if ((data.shifts||[]).find(s => s.date===date && s.staffId===sid && s.slotType===sel)) {
-        toast("이미 등록됨"); return;
+      // 같은 날짜+같은 타입(오프닝/클로징)은 한 명만 — 이미 배정돼 있으면 차단
+      const dup = (data.shifts||[]).find(s => s.date===date && s.slotType===sel);
+      if (dup) {
+        const who = gSt(dup.staffId)?.name || "다른 직원";
+        toast(dup.staffId === sid ? "이미 등록됨" : `❌ ${date} ${sel}은 이미 ${who} 배정됨`);
+        return;
       }
       start = slot.start; end = slot.end; slotType = slot.type; hours = slot.hours;
     }
@@ -995,7 +999,8 @@ function GenFixedModal({ modal, data, persist, close, toast, isVac }) {
         if (!fx.dows.includes(dow)) return;
         const slot = getSlots(ds).find(s => s.type === fx.type);
         if (!slot) return;
-        if (ns.find(s => s.date===ds && s.staffId===fx.staffId && s.slotType===fx.type)) return;
+        // 같은 날짜+같은 타입에 누군가(본인 포함) 이미 배정돼 있으면 생성 안 함
+        if (ns.find(s => s.date===ds && s.slotType===fx.type)) return;
         ns.push({
           id: nid(ns), staffId: fx.staffId, date: ds,
           start: slot.start, end: slot.end, slotType: slot.type,
@@ -4116,7 +4121,11 @@ export default function App() {
     const holName = hols[svDate] || "";
     const vacN = vacName(svDate);
     const slots = getSlots(svDate);
-    const taken = (data.shifts||[]).filter(s => s.date===svDate && s.staffId===svSid).map(s => s.slotType);
+    // 같은 날짜+같은 타입은 한 명만: 누가 이미 잡았는지 (본인 포함 전 직원 기준)
+    const takenBy = {};
+    (data.shifts||[]).filter(s => s.date===svDate && (s.slotType==="오프닝" || s.slotType==="클로징"))
+      .forEach(s => { if (takenBy[s.slotType] === undefined) takenBy[s.slotType] = s.staffId; });
+    const taken = Object.keys(takenBy);
     const fixedTypes = (data.fixed||[]).filter(f => f.staffId===svSid && f.dows.includes(dow)).map(f => f.type);
     // 직원이 보고 있는 달력의 월
     const viewYM = `${svCalY}-${String(svCalM+1).padStart(2,"0")}`;
@@ -4133,8 +4142,13 @@ export default function App() {
       if (!svSid || !svSel) return;
       const slot = slots.find(s => s.type === svSel);
       if (!slot) return;
-      if ((data.shifts||[]).find(s => s.date===svDate && s.staffId===svSid && s.slotType===svSel)) {
-        showToast("이미 등록됨");
+      // 같은 날짜+같은 타입(오프닝/클로징)은 한 명만
+      const dup = (data.shifts||[]).find(s => s.date===svDate && s.slotType===svSel);
+      if (dup) {
+        showToast(dup.staffId === svSid
+          ? "이미 등록됨"
+          : `❌ ${svSel}은 이미 ${gSt(dup.staffId)?.name || "다른 직원"}님이 등록했어요`);
+        setSvSel(null);
         return;
       }
       await persist({...data, shifts: [...(data.shifts||[]), {
@@ -4274,7 +4288,11 @@ export default function App() {
                       <button key={sl.type} className={cls} onClick={()=>{ if (!isTaken) setSvSel(sl.type); }}>
                         <div className="sln">
                           {sl.type === "오프닝" ? "🌅" : "🌆"} {sl.type}
-                          {isTaken ? <span style={{fontSize:10,color:"#2ed573",marginLeft:6}}>✓ 등록됨</span> : null}
+                          {isTaken ? (
+                            <span style={{fontSize:10,color:takenBy[sl.type]===svSid?"#2ed573":"#888",marginLeft:6}}>
+                              {takenBy[sl.type]===svSid ? "✓ 등록됨" : `✓ ${gSt(takenBy[sl.type])?.name || "?"} 등록`}
+                            </span>
+                          ) : null}
                           {isFixed && !isTaken ? <span style={{fontSize:10,color:"#c47ff5",marginLeft:6}}>📌 고정</span> : null}
                         </div>
                         <div className="slt">{sl.start}~{sl.end} {sl.hours}h</div>
