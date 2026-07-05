@@ -4273,6 +4273,33 @@ export default function App() {
                 {dow === 0 && !holName ? (
                   <div className="notice n-red">🚫 일요일 휴무</div>
                 ) : null}
+                {/* 선택한 날짜의 배정 현황 (달력 날짜 탭 → 여기서 확인) */}
+                {slots.length > 0 ? (
+                  <div style={{background:"#f5f5f7",borderRadius:8,padding:"9px 11px",marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:5}}>
+                      👥 {svDate} ({dowKo(svDate)}) 배정 현황
+                    </div>
+                    {["오프닝", "클로징"].map(tp => {
+                      const assigned = (data.shifts||[]).filter(s => s.date===svDate && s.slotType===tp);
+                      return (
+                        <div key={tp} style={{display:"flex",alignItems:"center",gap:6,padding:"2px 0",fontSize:12}}>
+                          <span className={"badge " + (tp==="오프닝"?"bylw":"bgrn")}>{tp==="오프닝"?"🌅":"🌆"} {tp}</span>
+                          {assigned.length === 0 ? (
+                            <span style={{color:"#aaa"}}>미배정</span>
+                          ) : assigned.map(s => {
+                            const st = gSt(s.staffId);
+                            return (
+                              <span key={s.id} style={{fontWeight:700,color:st?.color||"#666"}}>
+                                <span className="dot" style={{background:st?.color||"#999"}} />
+                                {st?.name || "?"}{s.staffId===svSid ? " (나)" : ""}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <div style={{fontSize:12,fontWeight:700,marginBottom:7}}>⏰ 근무 타입</div>
                 {slots.length === 0 ? (
                   <div style={{color:"#888",fontSize:12}}>근무 없음</div>
