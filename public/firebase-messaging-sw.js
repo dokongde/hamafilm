@@ -12,11 +12,12 @@
  * ============================================================ */
 
 const FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyBPwbzE799EUsnRXw6Ga6FLpbrlADHa5qo",
+  authDomain: "hamafilm-schedule.firebaseapp.com",
+  projectId: "hamafilm-schedule",
+  storageBucket: "hamafilm-schedule.firebasestorage.app",
+  messagingSenderId: "35696967712",
+  appId: "1:35696967712:web:0eb82d4e96ef682741bc45"
 };
 
 if (FIREBASE_CONFIG.apiKey) {

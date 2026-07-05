@@ -11,14 +11,15 @@
 // ============================================================
 
 export const PUSH_CONFIG = {
-  enabled: false,
+  enabled: true,
   firebase: {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    messagingSenderId: "",
-    appId: ""
+    apiKey: "AIzaSyBPwbzE799EUsnRXw6Ga6FLpbrlADHa5qo",
+    authDomain: "hamafilm-schedule.firebaseapp.com",
+    projectId: "hamafilm-schedule",
+    storageBucket: "hamafilm-schedule.firebasestorage.app",
+    messagingSenderId: "35696967712",
+    appId: "1:35696967712:web:0eb82d4e96ef682741bc45"
   },
   // Firebase 콘솔 > 프로젝트 설정 > 클라우드 메시징 > 웹 푸시 인증서 (키 쌍)
-  vapidKey: ""
+  vapidKey: "BHFtPR7VqUFB4VsOlbUHhxmkYKpliun4vEZsnqECRmq5qnvudfZqQZq_CMPDlDJB4k2XLTDbPtkyWqcoGnlhxTM"
 };
