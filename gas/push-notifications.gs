@@ -45,6 +45,8 @@ function handlePushAction_(body) {
       out = notifyPay_(body);
     } else if (body.pushAction === "clockEvent") {
       out = clockEvent_(body);
+    } else if (body.pushAction === "loginEvent") {
+      out = loginEvent_(body);
     } else {
       out = { ok: false, error: "unknown pushAction" };
     }
@@ -265,6 +267,33 @@ function clockEvent_(body) {
   var n = 0;
   list.forEach(function (tk) {
     sendFcm_(tk, title, txt, "clock_" + (body.staffId != null ? body.staffId : "") + "_" + body.type);
+    n++;
+  });
+  return { ok: true, sent: n };
+}
+
+/* ============================================================
+ * 3-1c) 관리자 로그인/로그아웃 알림 — doPost
+ *   {pushAction:"loginEvent", staffId, staffName,
+ *    type:"in"|"out", time:"HH:mm"}
+ * 앱에서 직원이 실제 PIN 입력(또는 이름 선택)으로 로그인하거나
+ * 명시적으로 로그아웃할 때 호출 → staffId "admin" 으로 구독된
+ * 모든 기기(사장님 폰)에 발송. 응답 {ok:true, sent:n}
+ * ※ 자동 세션 복원(로그인 유지)에서는 앱이 호출하지 않음.
+ * ============================================================ */
+function loginEvent_(body) {
+  if (!body || (body.type !== "in" && body.type !== "out")) {
+    return { ok: false, error: 'type은 "in"|"out"' };
+  }
+  var isIn = body.type === "in";
+  var name = body.staffName || (body.staffId != null ? "직원 " + body.staffId : "직원");
+  var title = isIn ? "🔓 " + name + " 로그인" : "🔒 " + name + " 로그아웃";
+  var txt = String(body.time || "");
+
+  var list = tokensByStaff_()["admin"] || [];
+  var n = 0;
+  list.forEach(function (tk) {
+    sendFcm_(tk, title, txt, "login_" + (body.staffId != null ? body.staffId : "") + "_" + body.type);
     n++;
   });
   return { ok: true, sent: n };

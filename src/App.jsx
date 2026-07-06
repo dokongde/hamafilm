@@ -115,6 +115,7 @@ function needsAttention(sh) {
 const DEFAULT_PIN = "1234";
 const STORE_KEY = "hamafilm_v2";
 const PIN_KEY = "hamafilm_pin_v2";
+const SESSION_KEY = "hamafilm_session_v1"; // 직원 로그인 유지 — 이 기기에서 마지막 로그인한 직원 (관리자는 보안상 저장 안 함)
 
 const DEFAULT_DATA = {
   staff: [
@@ -168,6 +169,40 @@ const DEFAULT_DATA = {
 
 // ═══ Google Apps Script 백엔드 ═══
 const GAS_URL = "https://script.google.com/macros/s/AKfycbw48A5z_PANeJWD-GRZbNc0SPj2uZmurngM1TQiq3tx69VDR9zDC153IOsVcxGSGaV8/exec";
+
+// ===== 직원 로그인 세션 (localStorage — 기기별) =====
+function saveSession(staffId) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ staffId })); } catch (e) {}
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    return (s && s.staffId != null) ? s : null;
+  } catch (e) { return null; }
+}
+
+// 관리자 폰 로그인/로그아웃 푸시 (fire-and-forget — 실패해도 로그인 흐름에 영향 없음)
+// ※ 실제 로그인/로그아웃 행위에서만 호출 — 자동 세션 복원 시에는 호출 금지
+function notifyLoginEvent(staffId, staffName, type) {
+  try {
+    const now = new Date();
+    const time = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+    fetch(GAS_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        pushAction: "loginEvent",
+        staffId, staffName: staffName || "", type, time
+      }),
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      redirect: "follow"
+    }).catch(() => {});
+  } catch (e) { /* 무시 */ }
+}
 
 let STORAGE_MODE = "loading";
 let LAST_ERROR = "";
@@ -3573,6 +3608,21 @@ export default function App() {
       setStorageMode(STORAGE_MODE);
       setLastError(LAST_ERROR);
 
+      // 저장된 직원 세션 자동 복원 (로그인 유지) — 알림은 보내지 않음
+      try {
+        const sess = loadSession();
+        if (sess) {
+          const staffList = (d || DEFAULT_DATA).staff || [];
+          if (staffList.some(s => s.id === sess.staffId)) {
+            setSvSid(sess.staffId);
+            setSvDate(todayStr());
+            setSvSel(null);
+          } else {
+            clearSession(); // 삭제된 직원 등 — 세션 무효화
+          }
+        }
+      } catch (e) {}
+
       // URL ?admin=PIN 으로 관리자 직접 진입
       try {
         const params = new URLSearchParams(window.location.search);
@@ -4410,6 +4460,8 @@ export default function App() {
                       setSvSid(s.id);
                       setSvDate(todayStr());
                       setSvSel(null);
+                      saveSession(s.id); // 로그인 유지
+                      notifyLoginEvent(s.id, s.name, "in");
                     }
                   }}>
                     <div className="sav" style={{background:s.color}}>{s.name.slice(0, 1)}</div>
@@ -4424,7 +4476,13 @@ export default function App() {
           ) : (
             <div>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-                <button className="btn bs sm" onClick={()=>{setSvSid(null); setSvSel(null);}}>← 뒤로</button>
+                <button className="btn bs sm" onClick={()=>{
+                  const me = gSt(svSid);
+                  clearSession(); // 저장된 세션 삭제 — 다음에 열면 이름 선택 화면
+                  notifyLoginEvent(svSid, me?.name || "", "out");
+                  setSvSid(null);
+                  setSvSel(null);
+                }}>🚪 로그아웃</button>
                 <div style={{fontSize:14,fontWeight:700}}>{gSt(svSid)?.name} 님</div>
               </div>
               <div className="card">
@@ -5154,6 +5212,8 @@ export default function App() {
             setSvSel(null);
             closeModal();
             setPinBuf("");
+            saveSession(targetStaff.id); // 로그인 유지
+            notifyLoginEvent(targetStaff.id, targetStaff.name, "in");
           } else {
             setPinErr("PIN이 틀렸습니다");
             setTimeout(() => setPinBuf(""), 600);
