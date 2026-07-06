@@ -7,12 +7,14 @@
  *  - 스크립트 속성(Script Properties)에 FCM_SA_JSON =
  *    Firebase 서비스 계정 키 JSON 전체 텍스트
  *  - 프로젝트 시간대: Europe/Berlin 권장 (아래 TZ 상수로도 방어)
- *  - setupPushTrigger() 1회 실행 → 15분마다 sendShiftReminders 실행
+ *  - setupPushTrigger() 1회 실행 →
+ *      · 5분마다 sendShiftReminders (30분 전 / 시작 직전 / 종료 직전)
+ *      · 매달 15일 오전 10시 sendMonthlyConfirm (근무내역 확인)
  * ============================================================ */
 
 // ===== 설정 (여기만 바꾸면 됨) =====
-var REMINDER_MIN_BEFORE = 60;   // 시프트 시작 몇 분 전에 알림을 보낼지
-var TRIGGER_EVERY_MIN   = 15;   // 트리거 실행 주기(분) — setupPushTrigger와 일치시킬 것
+var REMINDER_MIN_BEFORE = 30;   // 시프트 시작 몇 분 전에 알림을 보낼지
+var TRIGGER_EVERY_MIN   = 5;    // 트리거 실행 주기(분) — setupPushTrigger와 일치시킬 것
 var TZ                  = "Europe/Berlin";
 var PUSH_SHEET_NAME     = "push"; // 구독(토큰) 저장 시트 이름
 
@@ -39,6 +41,8 @@ function handlePushAction_(body) {
     } else if (body.pushAction === "unsubscribe") {
       removeToken_(body.token);
       out = { ok: true };
+    } else if (body.pushAction === "notifyPay") {
+      out = notifyPay_(body);
     } else {
       out = { ok: false, error: "unknown pushAction" };
     }
@@ -111,10 +115,41 @@ function loadShifts_() {
   return parsed.shifts || [];
 }
 
+// staff 목록 (wage 포함) — data 버킷에서 읽는다.
+// 구형(hamafilm_v2 래핑) / 신형(키 직접) 두 형식 모두 지원.
+function loadStaff_() {
+  var res = UrlFetchApp.fetch(WEB_APP_URL, { muteHttpExceptions: true, followRedirects: true });
+  var j = JSON.parse(res.getContentText());
+  var raw = j && j.data && j.data.data;
+  if (!raw) return [];
+  var parsed = JSON.parse(raw);
+  var d = parsed["hamafilm_v2"] || parsed;
+  return d.staff || [];
+}
+
+// "HH:mm" → 분. 형식이 아니면 null.
+function toMin_(hm) {
+  if (!hm || typeof hm !== "string" || hm.indexOf(":") < 0) return null;
+  var p = hm.split(":");
+  var v = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+  return isNaN(v) ? null : v;
+}
+
+// 시프트 근무시간(h) — 앱의 shiftHours()와 동일 규칙:
+// sh.hours 우선, 없으면 start~end 간격 (기본 슬롯도 hours == end-start).
+function shiftHours_(sh) {
+  if (sh.hours) return Number(sh.hours);
+  var s = toMin_(sh.start), e = toMin_(sh.end);
+  if (s == null || e == null) return 0;
+  return Math.max(e - s, 0) / 60;
+}
+
 /* ============================================================
- * 3) 리마인더 발송 — 시간 트리거가 15분마다 호출
- * "시작 REMINDER_MIN_BEFORE분 전 ~ (REMINDER_MIN_BEFORE-트리거주기)분 전"
- * 창에 들어온 시프트에 1회 발송. CacheService로 중복 발송 방지(6시간).
+ * 3) 리마인더 발송 — 시간 트리거가 5분마다 호출
+ * 알림 3종 (각각 CacheService 키 분리로 중복 발송 방지, 6시간):
+ *   a) 시작 30분 전 (sent_)  — 남은 시간이 (25, 30]일 때
+ *   b) 시작 직전   (start_) — 남은 시간이 [0, 5]일 때
+ *   c) 종료 직전   (end_)   — 종료까지  [0, 5]일 때
  * ============================================================ */
 function sendShiftReminders() {
   var now = new Date();
@@ -128,30 +163,124 @@ function sendShiftReminders() {
   var shifts = loadShifts_();
   var cache = CacheService.getScriptCache();
 
+  // 창에 들어왔고 아직 안 보낸 경우에만 true (+ 캐시 마킹)
+  function shouldSend(inWindow, key) {
+    if (!inWindow) return false;
+    if (cache.get(key)) return false;
+    cache.put(key, "1", 21600); // 6시간 — 당일 재발송 방지
+    return true;
+  }
+
   shifts.forEach(function (s) {
-    if (s.date !== today || !s.start) return;
+    if (s.date !== today) return;
     var list = tokens[String(s.staffId)];
     if (!list || !list.length) return;
 
-    var p = s.start.split(":");
-    var startMin = parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
-    var diff = startMin - nowMin; // 시작까지 남은 분
+    var send = function (title, body, tag) {
+      list.forEach(function (tk) { sendFcm_(tk, title, body, tag); });
+    };
 
-    // 알림 창: 예) 60분 전 트리거 주기 15분 → 남은 시간이 (45, 60]일 때 발송
-    if (diff > REMINDER_MIN_BEFORE || diff <= REMINDER_MIN_BEFORE - TRIGGER_EVERY_MIN) return;
+    var startMin = toMin_(s.start);
+    var endMin = toMin_(s.end);
 
-    var dedupKey = "sent_" + today + "_" + s.id;
-    if (cache.get(dedupKey)) return;
-    cache.put(dedupKey, "1", 21600); // 6시간 — 당일 재발송 방지
+    // a) 시작 30분 전
+    if (startMin != null) {
+      var diff = startMin - nowMin; // 시작까지 남은 분
+      var inWin = diff <= REMINDER_MIN_BEFORE && diff > REMINDER_MIN_BEFORE - TRIGGER_EVERY_MIN;
+      if (shouldSend(inWin, "sent_" + today + "_" + s.id)) {
+        var title;
+        if (s.slotType === "오프닝") { title = "🌅 오늘 오프닝 출근이에요"; }
+        else if (s.slotType === "클로징") { title = "🌆 오늘 클로징 출근이에요"; }
+        else { title = "🕐 오늘 근무가 있어요"; }
+        send(title, s.start + "~" + (s.end || "") + " 근무 · " + REMINDER_MIN_BEFORE + "분 뒤 시작해요!", "shift_" + s.id);
+      }
+    }
 
-    var title, emoji;
-    if (s.slotType === "오프닝") { title = "🌅 오늘 오프닝 출근이에요"; }
-    else if (s.slotType === "클로징") { title = "🌆 오늘 클로징 출근이에요"; }
-    else { title = "🕐 오늘 근무가 있어요"; }
-    var body = s.start + "~" + (s.end || "") + " 근무 · 곧 시작해요!";
+    // b) 시작 직전 (남은 시간 0~5분)
+    if (startMin != null) {
+      var dS = startMin - nowMin;
+      if (shouldSend(dS >= 0 && dS <= TRIGGER_EVERY_MIN, "start_" + today + "_" + s.id)) {
+        send("🏃 곧 시작!", s.start + " 근무 — 출근 버튼 누르고 체크리스트 확인하세요!", "shiftstart_" + s.id);
+      }
+    }
 
+    // c) 종료 직전 (종료까지 0~5분)
+    if (endMin != null) {
+      var dE = endMin - nowMin;
+      if (shouldSend(dE >= 0 && dE <= TRIGGER_EVERY_MIN, "end_" + today + "_" + s.id)) {
+        send("🏁 곧 퇴근!", s.end + " 마감 — 퇴근 버튼 누르고 체크리스트 확인하세요!", "shiftend_" + s.id);
+      }
+    }
+  });
+}
+
+/* ============================================================
+ * 3-1) 월급 준비 알림 — doPost {pushAction:"notifyPay", staffId, memo?}
+ * 해당 직원의 모든 구독 기기에 발송. 응답 {ok:true, sent:n}
+ * (sent:0 이면 그 직원은 알림 미구독 상태)
+ * ============================================================ */
+function notifyPay_(body) {
+  if (!body.staffId && body.staffId !== 0) return { ok: false, error: "staffId 필요" };
+  var tokens = tokensByStaff_();
+  var list = tokens[String(body.staffId)] || [];
+  var msg = body.memo ? String(body.memo) : "이번 달 급여가 준비되었습니다. 확인해주세요!";
+  var n = 0;
+  list.forEach(function (tk) {
+    sendFcm_(tk, "💰 월급이 준비됐어요", msg, "pay_" + body.staffId);
+    n++;
+  });
+  return { ok: true, sent: n };
+}
+
+/* ============================================================
+ * 3-2) 매달 15일 근무내역 확인 알림 — 트리거가 15일 오전 10시 호출
+ * 이번 달 1일~오늘 시프트를 직원별 집계 (앱과 동일: hours × wage,
+ * 휴게 차감 없음) → 구독된 직원에게 확인 요청 발송.
+ * ============================================================ */
+function sendMonthlyConfirm() {
+  var now = new Date();
+  var ym = Utilities.formatDate(now, TZ, "yyyy-MM");
+  var today = Utilities.formatDate(now, TZ, "yyyy-MM-dd");
+  var monthNum = parseInt(ym.split("-")[1], 10);
+
+  var cache = CacheService.getScriptCache();
+  var dedupKey = "monthly_" + ym;
+  if (cache.get(dedupKey)) return; // 같은 달 중복 실행 방지
+  cache.put(dedupKey, "1", 21600);
+
+  var tokens = tokensByStaff_();
+  if (Object.keys(tokens).length === 0) return;
+
+  var wageBy = {};
+  loadStaff_().forEach(function (st) { wageBy[String(st.id)] = Number(st.wage) || 0; });
+
+  // 직원별 집계: 근무 날짜(일) 목록 + 총 시간
+  var agg = {}; // staffId → { days: [], hours: 0 }
+  loadShifts_().forEach(function (s) {
+    if (!s.date || s.date.slice(0, 7) !== ym || s.date > today) return;
+    var sid = String(s.staffId);
+    if (!agg[sid]) agg[sid] = { days: [], hours: 0 };
+    var day = parseInt(s.date.slice(8, 10), 10);
+    if (agg[sid].days.indexOf(day) < 0) agg[sid].days.push(day);
+    agg[sid].hours += shiftHours_(s);
+  });
+
+  var fmtNum = function (n) {
+    // 21.5 → "21.5", 301.0 → "301"
+    return String(Math.round(n * 100) / 100);
+  };
+
+  Object.keys(agg).forEach(function (sid) {
+    var list = tokens[sid];
+    if (!list || !list.length) return; // 미구독 직원은 건너뜀
+    var a = agg[sid];
+    a.days.sort(function (x, y) { return x - y; });
+    var daysTxt = a.days.map(function (d) { return d + "일"; }).join("·");
+    var amount = a.hours * (wageBy[sid] || 0);
+    var body = daysTxt + " 근무, 총 " + fmtNum(a.hours) + "시간 · €" + fmtNum(amount)
+      + " — 맞는지 확인해주세요!";
     list.forEach(function (tk) {
-      sendFcm_(tk, title, body, "shift_" + s.id);
+      sendFcm_(tk, "📋 " + monthNum + "월 근무 확인", body, "monthly_" + ym);
     });
   });
 }
@@ -232,10 +361,14 @@ function sendFcm_(deviceToken, title, body, tag) {
 // 트리거 설치 (1회 실행) — 기존 동일 트리거는 정리 후 재설치
 function setupPushTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === "sendShiftReminders") ScriptApp.deleteTrigger(t);
+    var fn = t.getHandlerFunction();
+    if (fn === "sendShiftReminders" || fn === "sendMonthlyConfirm") ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger("sendShiftReminders").timeBased().everyMinutes(TRIGGER_EVERY_MIN).create();
-  console.log("트리거 설치 완료: sendShiftReminders / " + TRIGGER_EVERY_MIN + "분마다");
+  ScriptApp.newTrigger("sendMonthlyConfirm").timeBased()
+    .onMonthDay(15).atHour(10).inTimezone(TZ).create();
+  console.log("트리거 설치 완료: sendShiftReminders / " + TRIGGER_EVERY_MIN + "분마다"
+    + " + sendMonthlyConfirm / 매달 15일 10시(" + TZ + ")");
 }
 
 // 테스트 발송 — 구독된 모든 기기에 테스트 알림

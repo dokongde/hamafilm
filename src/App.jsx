@@ -2405,8 +2405,35 @@ function EditPaymentModal({ modal, data, persist, close, toast, gSt }) {
 // 탭 컴포넌트들 (각자 useState 사용)
 // ═══════════════════════════════════════════════════
 
-function SalaryTab({ data, persist, setModal, gSt }) {
+function SalaryTab({ data, persist, setModal, gSt, toast }) {
   const [salYM, setSalYM] = useState(curYM());
+  const [notifying, setNotifying] = useState(null); // 발송 중인 staffId
+
+  // 💰 월급 준비 푸시 알림 (GAS notifyPay)
+  const sendPayNotify = async (st, amount) => {
+    if (!confirm(`${st.name}에게 "월급 준비됐어요" 알림을 보낼까요?\n(${salYM} · €${fmtE(amount)})`)) return;
+    setNotifying(st.id);
+    try {
+      const res = await fetch(GAS_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          pushAction: "notifyPay",
+          staffId: st.id,
+          memo: `${salYM} 급여 €${fmtE(amount)} 준비 완료 — 확인해주세요!`
+        }),
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        redirect: "follow"
+      });
+      const j = JSON.parse(await res.text());
+      if (j.ok && j.sent > 0) toast(`✅ ${st.name}에게 알림 전송! (기기 ${j.sent}대)`);
+      else if (j.ok) toast(`⚠️ ${st.name} 알림 미구독 — 직원 화면에서 "알림 켜기" 필요`);
+      else toast("❌ 전송 실패: " + (j.error || "알 수 없는 오류"));
+    } catch (e) {
+      toast("❌ 전송 실패 — 인터넷 확인");
+    } finally {
+      setNotifying(null);
+    }
+  };
   const shifts = (data.shifts||[]).filter(s => s.date.startsWith(salYM));
   const map = {};
   shifts.forEach(s => {
@@ -2608,6 +2635,14 @@ function SalaryTab({ data, persist, setModal, gSt }) {
                           } : null
                         })}>
                         {paid ? "수정" : ready ? "지급완료로" : "지급체크"}
+                      </button>
+                      <button
+                        className="btn bs sm"
+                        style={{marginTop:4,display:"block"}}
+                        disabled={notifying === r.st.id}
+                        title="월급 준비 푸시 알림 보내기"
+                        onClick={()=>sendPayNotify(r.st, pay ? (pay.amount || finalPay) : finalPay)}>
+                        {notifying === r.st.id ? "⏳ 전송중" : "💰 알림"}
                       </button>
                     </td>
                   </tr>
@@ -5219,7 +5254,7 @@ export default function App() {
             {adminTab === "schedule" ? renderCal() : null}
             {adminTab === "fixed" ? renderFixed() : null}
             {adminTab === "staff" ? renderStaffMgmt() : null}
-            {adminTab === "salary" ? <SalaryTab data={data} persist={persist} setModal={setModal} gSt={gSt} /> : null}
+            {adminTab === "salary" ? <SalaryTab data={data} persist={persist} setModal={setModal} gSt={gSt} toast={showToast} /> : null}
             {adminTab === "sales" ? <SalesTab data={data} persist={persist} setModal={setModal} /> : null}
             {adminTab === "stats" ? <StatsTab data={data} setModal={setModal} /> : null}
           </div>
