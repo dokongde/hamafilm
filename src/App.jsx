@@ -1056,6 +1056,61 @@ function StaffPushCard({ staffId, staffName, toast }) {
   );
 }
 
+// ─── 관리자 화면: 관리자 알림 카드 (직원 출퇴근 체크 시 사장님 폰으로 푸시) ───
+// staffId "admin" 으로 구독 → GAS clockEvent가 admin 구독 기기에 발송.
+function AdminPushCard({ toast }) {
+  const ADMIN_ID = "admin";
+  const [on, setOn] = useState(() => PUSH_CONFIG.enabled && pushEnabledHere(ADMIN_ID));
+  const [busy, setBusy] = useState(false);
+
+  if (!PUSH_CONFIG.enabled) return null;
+
+  const turnOn = async () => {
+    setBusy(true);
+    try {
+      await enablePush(GAS_URL, ADMIN_ID, "관리자");
+      setOn(true);
+      toast("🔔 관리자 알림 켜짐! 직원 출퇴근 시 알려드릴게요");
+    } catch (e) {
+      if ((e && e.message) === "denied") toast("알림 권한이 거부됐어요 — 폰 설정에서 허용해 주세요");
+      else toast("알림 설정 실패: " + ((e && e.message) || e));
+    } finally { setBusy(false); }
+  };
+
+  const turnOff = async () => {
+    setBusy(true);
+    try { await disablePush(GAS_URL, ADMIN_ID); setOn(false); toast("관리자 알림 꺼짐"); }
+    catch (e) { toast("해제 실패: " + ((e && e.message) || e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card" style={{marginTop:12,border:"1px solid rgba(121,80,242,.25)"}}>
+      <div className="ct" style={{color:"#7950f2"}}>🔔 관리자 알림</div>
+      {isIOS() && !isStandalone() ? (
+        <div style={{fontSize:12,color:"#666",lineHeight:1.7}}>
+          아이폰은 <b>홈 화면에 추가한 앱에서만</b> 알림을 받을 수 있어요.
+          사파리 공유 버튼 → “홈 화면에 추가” 후 그 아이콘으로 다시 열면 여기에 켜기 버튼이 나타나요.
+        </div>
+      ) : !pushSupported() ? (
+        <div style={{fontSize:12,color:"#888"}}>이 브라우저는 알림을 지원하지 않아요.</div>
+      ) : (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+          <div style={{fontSize:11,color:"#888",lineHeight:1.6}}>
+            {on ? "켜짐 — 직원이 출근/퇴근 체크하면 이 폰으로 알림이 와요" : "직원이 출근/퇴근 체크하면 이 폰으로 알림을 받아요"}
+          </div>
+          <button className={"btn sm " + (on ? "bs" : "bp")} disabled={busy} onClick={on ? turnOff : turnOn} style={{whiteSpace:"nowrap"}}>
+            {busy ? "..." : on ? "🔔 관리자 알림 끄기" : "🔔 관리자 알림 켜기"}
+          </button>
+        </div>
+      )}
+      <div style={{fontSize:10,color:"#888",marginTop:8,padding:"6px 8px",background:"#f5f5f7",borderRadius:5}}>
+        ⚠️ 이 기기는 직원 알림 대신 관리자 알림을 받게 됩니다 (한 기기에 한 종류만)
+      </div>
+    </div>
+  );
+}
+
 function GenFixedModal({ modal, data, persist, close, toast, isVac }) {
   const [ym, setYm] = useState(modal.ym || curYM());
   const gen = async () => {
@@ -4216,6 +4271,8 @@ export default function App() {
         </div>
       </div>
 
+      <AdminPushCard toast={showToast} />
+
       <div className="card" style={{marginTop:12,border:"1px solid rgba(245,197,24,.2)"}}>
         <div className="ct" style={{color:"#f5c518"}}>🔐 관리자 PIN 변경</div>
         <PinChange pin={pin} setPin={setPin} />
@@ -4745,6 +4802,23 @@ export default function App() {
                         const checkedIn = !!s.actualStart;
                         const checkedOut = !!s.actualEnd;
 
+                        // 관리자 폰 출퇴근 푸시 (fire-and-forget — 실패해도 체크인/아웃에 영향 없음)
+                        const notifyClockEvent = (type, time, planned) => {
+                          try {
+                            fetch(GAS_URL, {
+                              method: "POST",
+                              body: JSON.stringify({
+                                pushAction: "clockEvent",
+                                staffId: svSid,
+                                staffName: me?.name || "",
+                                type, time, planned: planned || ""
+                              }),
+                              headers: { "Content-Type": "text/plain;charset=utf-8" },
+                              redirect: "follow"
+                            }).catch(() => {});
+                          } catch (e) { /* 무시 */ }
+                        };
+
                         const doCheckIn = async () => {
                           const now = new Date();
                           const hh = String(now.getHours()).padStart(2,"0");
@@ -4755,6 +4829,7 @@ export default function App() {
                           );
                           await persist({...data, shifts: newShifts});
                           showToast(`✅ 출근 완료 (${time})`);
+                          notifyClockEvent("in", time, s.start);
                         };
 
                         const doCheckOut = async () => {
@@ -4797,6 +4872,7 @@ export default function App() {
                           );
                           await persist({...data, shifts: newShifts});
                           showToast(`✅ 퇴근 완료 (${time})`);
+                          notifyClockEvent("out", time, s.end);
                         };
 
                         return (

@@ -43,6 +43,8 @@ function handlePushAction_(body) {
       out = { ok: true };
     } else if (body.pushAction === "notifyPay") {
       out = notifyPay_(body);
+    } else if (body.pushAction === "clockEvent") {
+      out = clockEvent_(body);
     } else {
       out = { ok: false, error: "unknown pushAction" };
     }
@@ -233,6 +235,42 @@ function notifyPay_(body) {
 }
 
 /* ============================================================
+ * 3-1b) 관리자 출퇴근 알림 — doPost
+ *   {pushAction:"clockEvent", staffId, staffName, type:"in"|"out",
+ *    time:"HH:mm", planned:"HH:mm"(선택 — 예정 시작/종료 시각)}
+ * 앱에서 직원이 출근/퇴근 체크 시 호출 → staffId "admin" 으로
+ * 구독된 모든 기기(사장님 폰)에 발송. 응답 {ok:true, sent:n}
+ * planned가 오면 시프트 재조회 없이 정시/지각을 계산해 표시.
+ * ============================================================ */
+function clockEvent_(body) {
+  if (!body || (body.type !== "in" && body.type !== "out")) {
+    return { ok: false, error: 'type은 "in"|"out"' };
+  }
+  var isIn = body.type === "in";
+  var name = body.staffName || (body.staffId != null ? "직원 " + body.staffId : "직원");
+  var title = isIn ? "✅ " + name + " 출근" : "🌙 " + name + " 퇴근";
+
+  var txt = String(body.time || "");
+  var t = toMin_(body.time), p = toMin_(body.planned);
+  if (t != null && p != null) {
+    var diff = t - p; // 실제 - 예정 (분)
+    if (isIn) {
+      txt += diff > 0 ? " (" + diff + "분 지각)" : " (정시)";
+    } else {
+      txt += diff < 0 ? " (" + (-diff) + "분 일찍)" : " (정시)";
+    }
+  }
+
+  var list = tokensByStaff_()["admin"] || [];
+  var n = 0;
+  list.forEach(function (tk) {
+    sendFcm_(tk, title, txt, "clock_" + (body.staffId != null ? body.staffId : "") + "_" + body.type);
+    n++;
+  });
+  return { ok: true, sent: n };
+}
+
+/* ============================================================
  * 3-2) 매달 15일 근무내역 확인 알림 — 트리거가 15일 오전 10시 호출
  * 이번 달 1일~오늘 시프트를 직원별 집계 (앱과 동일: hours × wage,
  * 휴게 차감 없음) → 구독된 직원에게 확인 요청 발송.
@@ -277,6 +315,7 @@ function sendMonthlyConfirm() {
     a.days.sort(function (x, y) { return x - y; });
     var daysTxt = a.days.map(function (d) { return d + "일"; }).join("·");
     var amount = a.hours * (wageBy[sid] || 0);
+    if (!(amount > 0)) return; // 시급 미입력 등 €0 이면 발송 안 함 ("€0 확인" 알림 방지)
     var body = daysTxt + " 근무, 총 " + fmtNum(a.hours) + "시간 · €" + fmtNum(amount)
       + " — 맞는지 확인해주세요!";
     list.forEach(function (tk) {
