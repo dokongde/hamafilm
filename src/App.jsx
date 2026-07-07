@@ -3028,7 +3028,7 @@ function getMonthRange(startYM, endYM) {
   return result;
 }
 
-function StatsTab({ data, setModal }) {
+function StatsTab({ data, setModal, persist }) {
   const [view, setView] = useState("dashboard"); // "dashboard" | "details" | "expenses"
   const [stYM, setStYM] = useState(curYM());
 
@@ -5393,7 +5393,7 @@ export default function App() {
             {adminTab === "staff" ? renderStaffMgmt() : null}
             {adminTab === "salary" ? <SalaryTab data={data} persist={persist} setModal={setModal} gSt={gSt} toast={showToast} /> : null}
             {adminTab === "sales" ? <SalesTab data={data} persist={persist} setModal={setModal} /> : null}
-            {adminTab === "stats" ? <StatsTab data={data} setModal={setModal} /> : null}
+            {adminTab === "stats" ? <StatsTab data={data} setModal={setModal} persist={persist} /> : null}
           </div>
         </div>
       )}
