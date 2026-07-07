@@ -186,9 +186,10 @@ function loadSession() {
   } catch (e) { return null; }
 }
 
-// 관리자 폰 로그인/로그아웃 푸시 (fire-and-forget — 실패해도 로그인 흐름에 영향 없음)
-// ※ 실제 로그인/로그아웃 행위에서만 호출 — 자동 세션 복원 시에는 호출 금지
+// 관리자 폰 로그인/로그아웃 푸시 — 사장님 요청으로 비활성화 (출퇴근·월급 알림만 사용).
+// 다시 켜려면 아래 return을 지우면 됨 (GAS의 loginEvent 처리는 그대로 살아 있음).
 function notifyLoginEvent(staffId, staffName, type) {
+  return;
   try {
     const now = new Date();
     const time = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
