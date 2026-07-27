@@ -2998,6 +2998,223 @@ function SalesTab({ data, persist, setModal }) {
   );
 }
 
+// ===== 매출 대사 (Reconciliation) =====
+// 목적: 근무자별로 "미기록 쿠폰 세션(현금 카운터결제)"을 보고, 프리샷을 제외한
+//       빼돌림 의심 금액을 한눈에 확인. rc(파이썬 저장, 읽기전용) + fs(이 앱이 저장) 사용.
+// fs 형식: [{t:"13:13", v:9, memo?:"수동"}]  — un 세션 프리샷 마킹 + 수동 추가분
+function ReconTab({ data, persist }) {
+  // 대사 데이터(rc)가 있는 가장 최근 날짜를 기본값으로
+  const rcDates = (data.sales||[]).filter(s => s.rc).map(s => s.date).sort();
+  const [rcDate, setRcDate] = useState(rcDates.length ? rcDates[rcDates.length-1] : todayStr());
+  const [mt, setMt] = useState(""); // 수동 프리샷 시각
+  const [mv, setMv] = useState(""); // 수동 프리샷 금액
+
+  const rec = (data.sales||[]).find(s => s.date === rcDate);
+  const rc = rec && rec.rc ? rec.rc : null;
+  const fs = (rec && Array.isArray(rec.fs)) ? rec.fs : [];
+
+  const shiftDay = (delta) => { const d = new Date(rcDate); d.setDate(d.getDate()+delta); setRcDate(dstr(d)); };
+  const toMin = t => { const [h,m] = String(t||"").split(":").map(Number); return (h||0)*60+(m||0); };
+
+  // fs에서 특정 un 세션(t,v)이 프리샷으로 마킹됐는지
+  const isMarked = (t, v) => fs.some(f => f.t === t && Number(f.v) === Number(v));
+
+  // 레코드의 fs만 갱신 (rc/sk 등 다른 필드는 spread로 보존)
+  const saveFs = async (newFs) => {
+    let newSales = [...(data.sales||[])];
+    const idx = newSales.findIndex(s => s.date === rcDate);
+    if (idx >= 0) {
+      newSales[idx] = { ...newSales[idx], fs: newFs };
+    } else {
+      // 매출 레코드가 아예 없는 날 (드묾) — 최소 레코드 생성
+      newSales.push({ id: nid(newSales), date: rcDate, pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,sk:0, fs: newFs });
+    }
+    await persist({ ...data, sales: newSales });
+  };
+
+  const toggleFreeshot = async (t, v) => {
+    if (isMarked(t, v)) await saveFs(fs.filter(f => !(f.t === t && Number(f.v) === Number(v))));
+    else await saveFs([...fs, { t, v: Number(v) }]);
+  };
+
+  const addManual = async () => {
+    const v = parseFloat(mv) || 0;
+    const t = (mt || "").trim() || "수동";
+    await saveFs([...fs, { t, v, memo: "수동" }]);
+    setMt(""); setMv("");
+  };
+
+  const removeFs = async (i) => { await saveFs(fs.filter((_, ix) => ix !== i)); };
+
+  const un = rc && Array.isArray(rc.un) ? rc.un : [];
+  const unSum = un.reduce((a, s) => a + (Number(s.v)||0), 0);
+  // 빼돌림 의심 = 미기록합 − (프리샷 마킹된 미기록 세션의 합)
+  const markedUnSum = un.filter(s => isMarked(s.t, s.v)).reduce((a, s) => a + (Number(s.v)||0), 0);
+  const suspSum = unSum - markedUnSum;
+
+  // 근무자 매핑: 세션 시각 → 시프트(오프닝/클로징) → 그날 배정된 직원
+  const slots = getSlots(rcDate); // 방학 여부는 getSlots가 자동 감지
+  const dayShifts = (data.shifts||[]).filter(s => s.date === rcDate);
+  const staffName = (id) => { const st = (data.staff||[]).find(x => x.id == id); return st ? st.name : "?"; };
+  const mapSession = (t) => {
+    const min = toMin(t);
+    const slot = slots.find(sl => min >= toMin(sl.start) && min < toMin(sl.end));
+    if (!slot) return { slotType: null, name: "시간대 외", cls: "" };
+    const sh = dayShifts.find(x => x.slotType === slot.type);
+    return {
+      slotType: slot.type,
+      name: sh ? staffName(sh.staffId) : "미배정",
+      cls: slot.type === "오프닝" ? "bylw" : "bgrn"
+    };
+  };
+
+  // 근무자별 그룹핑 (미기록 세션 기준)
+  const groups = {};
+  un.forEach(s => {
+    const m = mapSession(s.t);
+    const key = (m.slotType ? m.slotType + " · " : "") + m.name;
+    if (!groups[key]) groups[key] = { slotType: m.slotType, name: m.name, cls: m.cls, items: [], sum: 0, susp: 0 };
+    const marked = isMarked(s.t, s.v);
+    groups[key].items.push({ ...s, marked });
+    groups[key].sum += Number(s.v)||0;
+    if (!marked) groups[key].susp += Number(s.v)||0;
+  });
+  const groupList = Object.values(groups).sort((a, b) => b.susp - a.susp);
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
+        <button className="btn bs sm" onClick={()=>shiftDay(-1)}>◀</button>
+        <input type="date" value={rcDate} onChange={e=>setRcDate(e.target.value)} style={{width:160}} />
+        <button className="btn bs sm" onClick={()=>shiftDay(1)}>▶</button>
+        <span style={{fontSize:11,color:"#888",marginLeft:4}}>{dowKo(rcDate)}요일</span>
+      </div>
+
+      <div className="card" style={{background:"rgba(77,171,247,.06)",border:"1px solid rgba(77,171,247,.35)",marginBottom:10,fontSize:11,color:"#555"}}>
+        ℹ️ <strong>미기록 = 빼돌림이 아님.</strong> 미기록에는 프리샷(무료 사진)과 정상 현금 보관도 섞여 있습니다.
+        프리샷을 체크해 제외하고, 최종 판단은 <strong>드로어 현금 카운트 대조</strong>로 확정하세요.
+      </div>
+
+      {!rc ? (
+        <div className="card" style={{textAlign:"center",color:"#888",padding:24}}>
+          이 날짜는 <strong>대사 데이터 없음</strong> (파이썬 자동화가 아직 안 돌았거나 오래된 날)
+        </div>
+      ) : (
+        <>
+          {/* 요약 흐름 */}
+          <div className="g4" style={{marginBottom:12}}>
+            <div className="chip">
+              <div className="lb">🎟 루센트 쿠폰 세션</div>
+              <div className="vl">{rc.cp_n||0}건</div>
+              <div className="sb">€{fmtE(rc.cp_eur||0)}</div>
+            </div>
+            <div className="chip">
+              <div className="lb">💳 SumUp 정산</div>
+              <div className="vl" style={{color:"#2f9e44"}}>{rc.su_n||0}건</div>
+              <div className="sb">€{fmtE(rc.su_eur||0)}</div>
+            </div>
+            <div className="chip">
+              <div className="lb">❓ 미기록</div>
+              <div className="vl" style={{color:"#e8590c"}}>{un.length}건</div>
+              <div className="sb">€{fmtE(unSum)}</div>
+            </div>
+            <div className="chip" style={{background:"rgba(255,212,0,.12)"}}>
+              <div className="lb">🎁 프리샷 제외</div>
+              <div className="vl" style={{color:"#b8860b"}}>{un.filter(s=>isMarked(s.t,s.v)).length}건</div>
+              <div className="sb">€{fmtE(markedUnSum)}</div>
+            </div>
+          </div>
+
+          {/* 빼돌림 의심 강조 */}
+          <div className="card" style={{border:"2px solid #ff6b6b",background:"rgba(255,107,107,.06)",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:700,color:"#e03131"}}>🚨 빼돌림 의심 (프리샷 제외)</div>
+              <div style={{fontSize:10,color:"#888",marginTop:2}}>미기록 €{fmtE(unSum)} − 프리샷 €{fmtE(markedUnSum)}</div>
+            </div>
+            <div className="mn" style={{fontSize:26,fontWeight:800,color:"#e03131"}}>€{fmtE(suspSum)}</div>
+          </div>
+
+          {/* 미기록 세션 리스트 */}
+          <div className="card" style={{marginBottom:12,overflowX:"auto"}}>
+            <div style={{fontWeight:700,color:"#1971c2",marginBottom:8,fontSize:13}}>❓ 미기록 쿠폰 세션 ({un.length}건)</div>
+            {un.length === 0 ? (
+              <div style={{color:"#888",fontSize:12,padding:8}}>미기록 세션 없음 — 전부 정산됨 👍</div>
+            ) : (
+              <table className="tbl">
+                <thead><tr><th>프리샷</th><th>시각</th><th>금액</th><th>근무자</th></tr></thead>
+                <tbody>
+                  {un.map((s, i) => {
+                    const m = mapSession(s.t);
+                    const marked = isMarked(s.t, s.v);
+                    return (
+                      <tr key={i} style={marked ? {opacity:.55} : null}>
+                        <td style={{textAlign:"center"}}>
+                          <input type="checkbox" checked={marked} onChange={()=>toggleFreeshot(s.t, s.v)} />
+                        </td>
+                        <td className="mn" style={{whiteSpace:"nowrap"}}>{marked ? "🎁 " : ""}{s.t}</td>
+                        <td className="mn">€{fmtE(s.v)}</td>
+                        <td>
+                          {m.slotType ? <span className={"badge "+m.cls} style={{marginRight:4}}>{m.slotType}</span> : null}
+                          <span style={{fontSize:12}}>{m.name}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* 근무자별 그룹 */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{fontWeight:700,color:"#1971c2",marginBottom:8,fontSize:13}}>👥 근무자별 미기록 (의심액 큰 순)</div>
+            {groupList.length === 0 ? (
+              <div style={{color:"#888",fontSize:12,padding:8}}>데이터 없음</div>
+            ) : groupList.map((g, i) => (
+              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 4px",borderBottom:i<groupList.length-1?"1px solid #eee":"none",flexWrap:"wrap",gap:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  {g.slotType ? <span className={"badge "+g.cls}>{g.slotType}</span> : <span className="badge" style={{background:"#eee",color:"#888"}}>시간대 외</span>}
+                  <strong style={{fontSize:13}}>{g.name}</strong>
+                  <span style={{fontSize:11,color:"#888"}}>· 미기록 {g.items.length}건</span>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div className="mn" style={{fontWeight:800,color: g.susp>0 ? "#e03131" : "#2f9e44",fontSize:15}}>의심 €{fmtE(g.susp)}</div>
+                  <div style={{fontSize:10,color:"#888"}}>총 미기록 €{fmtE(g.sum)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 프리샷 수동 추가 + 마킹 목록 */}
+          <div className="card">
+            <div style={{fontWeight:700,color:"#b8860b",marginBottom:8,fontSize:13}}>🎁 프리샷 수동 추가</div>
+            <div style={{fontSize:10,color:"#888",marginBottom:8}}>
+              목록에 안 뜨는 무료 사진(SumUp이 €0 단독 결제를 안 줌)을 직접 추가하세요.
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+              <input type="text" placeholder="시각 (예:14:20, 선택)" value={mt} onChange={e=>setMt(e.target.value)} style={{width:150}} />
+              <input type="number" placeholder="금액 €" value={mv} onChange={e=>setMv(e.target.value)} style={{width:100}} />
+              <button className="btn bp sm" onClick={addManual}>+ 추가</button>
+            </div>
+            {fs.length === 0 ? (
+              <div style={{fontSize:11,color:"#aaa"}}>아직 마킹된 프리샷 없음</div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {fs.map((f, i) => (
+                  <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,background:"rgba(255,212,0,.08)",borderRadius:6,padding:"4px 8px"}}>
+                    <span>🎁 <span className="mn">{f.t}</span> · €{fmtE(f.v)} {f.memo ? <span style={{color:"#b8860b"}}>({f.memo})</span> : ""}</span>
+                    <button className="btn bd sm" onClick={()=>removeFs(i)}>제거</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // 월별 종합 데이터 계산 (매출/비용/인건비/순수익)
 function calcMonthData(data, ym) {
   // 1. 과거 직접 입력 데이터 우선
@@ -5395,6 +5612,7 @@ export default function App() {
     ["staff", "👤 직원"],
     ["salary", "💰 급여"],
     ["sales", "📊 매출"],
+    ["recon", "🔍 대사"],
     ["stats", "📈 통계"]
   ];
 
@@ -5435,6 +5653,7 @@ export default function App() {
             {adminTab === "staff" ? <ErrorBoundary label="직원"><Screen render={renderStaffMgmt} /></ErrorBoundary> : null}
             {adminTab === "salary" ? <ErrorBoundary label="급여"><SalaryTab data={data} persist={persist} setModal={setModal} gSt={gSt} toast={showToast} /></ErrorBoundary> : null}
             {adminTab === "sales" ? <ErrorBoundary label="매출"><SalesTab data={data} persist={persist} setModal={setModal} /></ErrorBoundary> : null}
+            {adminTab === "recon" ? <ErrorBoundary label="대사"><ReconTab data={data} persist={persist} /></ErrorBoundary> : null}
             {adminTab === "stats" ? <ErrorBoundary label="통계"><StatsTab data={data} setModal={setModal} persist={persist} /></ErrorBoundary> : null}
           </div>
         </div>
