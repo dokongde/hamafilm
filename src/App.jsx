@@ -3008,28 +3008,48 @@ function ReconTab({ data, persist }) {
   const [rcDate, setRcDate] = useState(rcDates.length ? rcDates[rcDates.length-1] : todayStr());
   const [mt, setMt] = useState(""); // 수동 프리샷 시각
   const [mv, setMv] = useState(""); // 수동 프리샷 금액
+  const [ccInput, setCcInput] = useState("");       // 실제 카운트 현금 입력값
+  const [floatInput, setFloatInput] = useState(""); // 시작 시재(float) — 세션 입력(비저장)
+  const [includeMc, setIncludeMc] = useState(false); // 기계현금(mc)을 기대 서랍에 포함할지
 
   const rec = (data.sales||[]).find(s => s.date === rcDate);
   const rc = rec && rec.rc ? rec.rc : null;
   const fs = (rec && Array.isArray(rec.fs)) ? rec.fs : [];
+
+  // 날짜가 바뀌면 입력칸을 그 날 레코드 값으로 동기화 (cc는 저장값, float는 매번 새로 입력)
+  useEffect(() => {
+    const r = (data.sales||[]).find(s => s.date === rcDate);
+    setCcInput(r && r.cc != null ? String(r.cc) : "");
+    setFloatInput("");
+  }, [rcDate]);
 
   const shiftDay = (delta) => { const d = new Date(rcDate); d.setDate(d.getDate()+delta); setRcDate(dstr(d)); };
   const toMin = t => { const [h,m] = String(t||"").split(":").map(Number); return (h||0)*60+(m||0); };
 
   // fs에서 특정 un 세션(t,v)이 프리샷으로 마킹됐는지
   const isMarked = (t, v) => fs.some(f => f.t === t && Number(f.v) === Number(v));
+  // 직원 인정(사장님측) 여부 — 슈킹 등 회사 현금관리 담당
+  const isSanctioned = (id) => { const st = (data.staff||[]).find(x => x.id == id); return !!(st && st.sanctioned); };
 
-  // 레코드의 fs만 갱신 (rc/sk 등 다른 필드는 spread로 보존)
-  const saveFs = async (newFs) => {
+  // 해당 날짜 레코드에 patch 병합 저장 (rc/fs/cc/sk 등 기존 필드는 spread로 보존)
+  const patchRec = async (patch) => {
     let newSales = [...(data.sales||[])];
     const idx = newSales.findIndex(s => s.date === rcDate);
     if (idx >= 0) {
-      newSales[idx] = { ...newSales[idx], fs: newFs };
+      newSales[idx] = { ...newSales[idx], ...patch };
     } else {
       // 매출 레코드가 아예 없는 날 (드묾) — 최소 레코드 생성
-      newSales.push({ id: nid(newSales), date: rcDate, pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,sk:0, fs: newFs });
+      newSales.push({ id: nid(newSales), date: rcDate, pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,sk:0, ...patch });
     }
     await persist({ ...data, sales: newSales });
+  };
+  const saveFs = (newFs) => patchRec({ fs: newFs });
+  const saveCc = (amt) => patchRec({ cc: amt });
+
+  // 직원 인정 토글 (staff 레코드 spread — 다른 필드 보존, 파이썬은 staff 안 건드림)
+  const toggleSanctioned = async (staffId) => {
+    const newStaff = (data.staff||[]).map(s => s.id === staffId ? { ...s, sanctioned: !s.sanctioned } : s);
+    await persist({ ...data, staff: newStaff });
   };
 
   const toggleFreeshot = async (t, v) => {
@@ -3048,9 +3068,8 @@ function ReconTab({ data, persist }) {
 
   const un = rc && Array.isArray(rc.un) ? rc.un : [];
   const unSum = un.reduce((a, s) => a + (Number(s.v)||0), 0);
-  // 빼돌림 의심 = 미기록합 − (프리샷 마킹된 미기록 세션의 합)
+  // 프리샷 마킹된 미기록 세션의 합
   const markedUnSum = un.filter(s => isMarked(s.t, s.v)).reduce((a, s) => a + (Number(s.v)||0), 0);
-  const suspSum = unSum - markedUnSum;
 
   // 근무자 매핑: 세션 시각 → 시프트(오프닝/클로징) → 그날 배정된 직원
   const slots = getSlots(rcDate); // 방학 여부는 getSlots가 자동 감지
@@ -3059,12 +3078,13 @@ function ReconTab({ data, persist }) {
   const mapSession = (t) => {
     const min = toMin(t);
     const slot = slots.find(sl => min >= toMin(sl.start) && min < toMin(sl.end));
-    if (!slot) return { slotType: null, name: "시간대 외", cls: "" };
+    if (!slot) return { slotType: null, name: "시간대 외", cls: "", staffId: null };
     const sh = dayShifts.find(x => x.slotType === slot.type);
     return {
       slotType: slot.type,
       name: sh ? staffName(sh.staffId) : "미배정",
-      cls: slot.type === "오프닝" ? "bylw" : "bgrn"
+      cls: slot.type === "오프닝" ? "bylw" : "bgrn",
+      staffId: sh ? sh.staffId : null
     };
   };
 
@@ -3073,13 +3093,38 @@ function ReconTab({ data, persist }) {
   un.forEach(s => {
     const m = mapSession(s.t);
     const key = (m.slotType ? m.slotType + " · " : "") + m.name;
-    if (!groups[key]) groups[key] = { slotType: m.slotType, name: m.name, cls: m.cls, items: [], sum: 0, susp: 0 };
+    if (!groups[key]) groups[key] = { slotType: m.slotType, name: m.name, cls: m.cls, staffId: m.staffId, sanctioned: isSanctioned(m.staffId), items: [], sum: 0, susp: 0 };
     const marked = isMarked(s.t, s.v);
     groups[key].items.push({ ...s, marked });
     groups[key].sum += Number(s.v)||0;
     if (!marked) groups[key].susp += Number(s.v)||0;
   });
-  const groupList = Object.values(groups).sort((a, b) => b.susp - a.susp);
+  // 인정 직원은 의심 반영액 0으로 취급해 뒤로 정렬
+  const groupList = Object.values(groups).sort((a, b) => (b.sanctioned?0:b.susp) - (a.sanctioned?0:a.susp));
+
+  // 빼돌림 의심 = 미기록합 − 프리샷마킹 − 인정직원 몫
+  const sanctionedSum = groupList.filter(g => g.sanctioned).reduce((a, g) => a + g.susp, 0);
+  const suspSum = unSum - markedUnSum - sanctionedSum;
+
+  // ===== 현금 대조 계산 =====
+  const counterCash = rec ? ((rec.pc||0)+(rec.ac||0)+(rec.nc||0)+(rec.jc||0)) : 0; // SumUp 카운터 현금매출
+  const machineCash = rec ? (rec.mc||0) : 0;                                       // 기계 현금(별도 현금함)
+  const floatV = parseFloat(floatInput) || 0;
+  const hasCc = rec && rec.cc != null;
+  const ccV = parseFloat(ccInput) || 0;
+  const expectedCash = floatV + counterCash + suspSum + (includeMc ? machineCash : 0);
+  const cashDiff = ccV - expectedCash; // 실제 − 기대
+  let ccVerdict = null;
+  if (hasCc) {
+    if (Math.abs(cashDiff) <= 2)
+      ccVerdict = { icon:"🟢", color:"#2f9e44", bg:"rgba(47,158,68,.08)", bd:"#2f9e44", text:"미기록 현금이 서랍에 있음 = 정상" };
+    else if (suspSum > 0 && Math.abs(cashDiff + suspSum) <= 2)
+      ccVerdict = { icon:"🔴", color:"#e03131", bg:"rgba(255,107,107,.08)", bd:"#ff6b6b", text:`미기록 €${fmtE(suspSum)} 사라짐 = 빼돌림 의심` };
+    else if (cashDiff < 0)
+      ccVerdict = { icon:"🟠", color:"#e8590c", bg:"rgba(232,89,12,.08)", bd:"#e8590c", text:`부족 €${fmtE(-cashDiff)} — 확인 필요` };
+    else
+      ccVerdict = { icon:"🟠", color:"#e8590c", bg:"rgba(232,89,12,.08)", bd:"#e8590c", text:`초과 €${fmtE(cashDiff)} — 확인 필요` };
+  }
 
   return (
     <div>
@@ -3093,6 +3138,29 @@ function ReconTab({ data, persist }) {
       <div className="card" style={{background:"rgba(77,171,247,.06)",border:"1px solid rgba(77,171,247,.35)",marginBottom:10,fontSize:11,color:"#555"}}>
         ℹ️ <strong>미기록 = 빼돌림이 아님.</strong> 미기록에는 프리샷(무료 사진)과 정상 현금 보관도 섞여 있습니다.
         프리샷을 체크해 제외하고, 최종 판단은 <strong>드로어 현금 카운트 대조</strong>로 확정하세요.
+      </div>
+
+      {/* 인정(사장님측) 직원 — 슈킹 등 회사 현금관리 → 빼돌림 아님 */}
+      <div className="card" style={{marginBottom:10}}>
+        <div style={{fontWeight:700,color:"#1971c2",marginBottom:4,fontSize:12}}>🤝 인정(사장님측) 직원</div>
+        <div style={{fontSize:10,color:"#888",marginBottom:8}}>
+          슈킹 등 사장님측 현금관리를 맡은 직원. 켜면 그 직원의 미기록은 <strong>빼돌림 의심에서 제외</strong>됩니다 (미기록 자체는 계속 표시).
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {(data.staff||[]).length === 0 ? <span style={{fontSize:11,color:"#aaa"}}>직원 없음</span> :
+            (data.staff||[]).map(st => (
+              <button key={st.id} onClick={()=>toggleSanctioned(st.id)}
+                style={{
+                  padding:"4px 10px", borderRadius:14, cursor:"pointer", fontSize:12,
+                  border: st.sanctioned ? "1px solid #4dabf7" : "1px solid #ddd",
+                  background: st.sanctioned ? "rgba(77,171,247,.15)" : "#fff",
+                  color: st.sanctioned ? "#1971c2" : "#888",
+                  fontWeight: st.sanctioned ? 700 : 400
+                }}>
+                {st.sanctioned ? "✓ " : ""}{st.name}{st.sanctioned ? " · 인정" : ""}
+              </button>
+            ))}
+        </div>
       </div>
 
       {!rc ? (
@@ -3128,10 +3196,69 @@ function ReconTab({ data, persist }) {
           {/* 빼돌림 의심 강조 */}
           <div className="card" style={{border:"2px solid #ff6b6b",background:"rgba(255,107,107,.06)",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
             <div>
-              <div style={{fontSize:12,fontWeight:700,color:"#e03131"}}>🚨 빼돌림 의심 (프리샷 제외)</div>
-              <div style={{fontSize:10,color:"#888",marginTop:2}}>미기록 €{fmtE(unSum)} − 프리샷 €{fmtE(markedUnSum)}</div>
+              <div style={{fontSize:12,fontWeight:700,color:"#e03131"}}>🚨 빼돌림 의심 (프리샷·인정 제외)</div>
+              <div style={{fontSize:10,color:"#888",marginTop:2}}>미기록 €{fmtE(unSum)} − 프리샷 €{fmtE(markedUnSum)}{sanctionedSum>0 ? ` − 인정 €${fmtE(sanctionedSum)}` : ""}</div>
             </div>
             <div className="mn" style={{fontSize:26,fontWeight:800,color:"#e03131"}}>€{fmtE(suspSum)}</div>
+          </div>
+
+          {/* 💰 현금 대조 (서랍 실물 확인) */}
+          <div className="card" style={{marginBottom:12}}>
+            <div style={{fontWeight:700,color:"#1971c2",marginBottom:8,fontSize:13}}>💰 현금 대조 (서랍 실물 확인)</div>
+            <div className="g4" style={{marginBottom:10}}>
+              <div className="chip">
+                <div className="lb">💳 SumUp 카운터 현금</div>
+                <div className="vl">€{fmtE(counterCash)}</div>
+                <div className="sb">사진+악세+네일+조이스</div>
+              </div>
+              <div className="chip">
+                <div className="lb">🖨 기계 현금 (mc)</div>
+                <div className="vl">€{fmtE(machineCash)}</div>
+                <div className="sb">{includeMc ? "기대에 포함됨" : "별도 현금함"}</div>
+              </div>
+              <div className="chip">
+                <div className="lb">❓ 미기록 의심</div>
+                <div className="vl" style={{color:"#e8590c"}}>€{fmtE(suspSum)}</div>
+                <div className="sb">서랍에 있어야 할 현금</div>
+              </div>
+              <div className="chip" style={{background:"rgba(77,171,247,.1)"}}>
+                <div className="lb">📥 기대 서랍 현금</div>
+                <div className="vl" style={{color:"#1971c2"}}>€{fmtE(expectedCash)}</div>
+                <div className="sb">시재+카운터+미기록{includeMc?"+기계":""}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+              <label style={{fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+                시작 시재 €
+                <input type="number" value={floatInput} onChange={e=>setFloatInput(e.target.value)} placeholder="0" style={{width:80}} />
+              </label>
+              <label style={{fontSize:12,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+                <input type="checkbox" checked={includeMc} onChange={e=>setIncludeMc(e.target.checked)} />
+                기계 현금(mc)을 기대에 포함
+              </label>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+              <label style={{fontSize:12,display:"flex",alignItems:"center",gap:5,fontWeight:600}}>
+                💵 실제 카운트 현금 €
+                <input type="number" value={ccInput} onChange={e=>setCcInput(e.target.value)} placeholder="세어서 입력" style={{width:110}} />
+              </label>
+              <button className="btn bp sm" onClick={()=>saveCc(ccInput==="" ? null : (parseFloat(ccInput)||0))}>저장</button>
+              {hasCc ? <span style={{fontSize:10,color:"#2f9e44"}}>✓ 저장됨 (€{fmtE(rec.cc)})</span> : <span style={{fontSize:10,color:"#aaa"}}>미입력</span>}
+            </div>
+            <div style={{fontSize:10,color:"#888",marginBottom:8}}>
+              공식: 기대 = 시재 €{fmtE(floatV)} + 카운터현금 €{fmtE(counterCash)} + 미기록의심 €{fmtE(suspSum)}{includeMc?` + 기계 €${fmtE(machineCash)}`:""} = €{fmtE(expectedCash)}
+            </div>
+            {hasCc ? (
+              <div className="card" style={{border:`2px solid ${ccVerdict.bd}`, background:ccVerdict.bg, display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:700,color:ccVerdict.color}}>{ccVerdict.icon} {ccVerdict.text}</div>
+                  <div style={{fontSize:10,color:"#888",marginTop:2}}>실제 €{fmtE(ccV)} − 기대 €{fmtE(expectedCash)}</div>
+                </div>
+                <div className="mn" style={{fontSize:24,fontWeight:800,color:ccVerdict.color}}>{cashDiff>=0?"+":"−"}€{fmtE(Math.abs(cashDiff))}</div>
+              </div>
+            ) : (
+              <div style={{fontSize:11,color:"#aaa",padding:"6px 0"}}>실제 카운트 현금을 입력·저장하면 차액·판정이 표시됩니다.</div>
+            )}
           </div>
 
           {/* 미기록 세션 리스트 */}
@@ -3175,11 +3302,21 @@ function ReconTab({ data, persist }) {
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
                   {g.slotType ? <span className={"badge "+g.cls}>{g.slotType}</span> : <span className="badge" style={{background:"#eee",color:"#888"}}>시간대 외</span>}
                   <strong style={{fontSize:13}}>{g.name}</strong>
+                  {g.sanctioned ? <span className="badge" style={{background:"rgba(77,171,247,.15)",color:"#1971c2"}}>🤝 인정</span> : null}
                   <span style={{fontSize:11,color:"#888"}}>· 미기록 {g.items.length}건</span>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div className="mn" style={{fontWeight:800,color: g.susp>0 ? "#e03131" : "#2f9e44",fontSize:15}}>의심 €{fmtE(g.susp)}</div>
-                  <div style={{fontSize:10,color:"#888"}}>총 미기록 €{fmtE(g.sum)}</div>
+                  {g.sanctioned ? (
+                    <>
+                      <div className="mn" style={{fontWeight:800,color:"#1971c2",fontSize:15}}>인정 (의심 제외)</div>
+                      <div style={{fontSize:10,color:"#888"}}>미기록 €{fmtE(g.sum)} · 의심 반영 €0.00</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mn" style={{fontWeight:800,color: g.susp>0 ? "#e03131" : "#2f9e44",fontSize:15}}>의심 €{fmtE(g.susp)}</div>
+                      <div style={{fontSize:10,color:"#888"}}>총 미기록 €{fmtE(g.sum)}</div>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
