@@ -1092,9 +1092,45 @@ function CashOutModal({ modal, data, persist, close, toast }) {
   };
   const removeReport = (i) => setReport(report.filter((_, ix) => ix !== i));
 
+  // ===== 실시간 대사 (오늘 루센트€ vs SumUp€) =====
+  // null=로딩중, {loaded, sumup, lucent, gap}=성공, {error:true}=준비중/실패
+  const [check, setCheck] = useState(null);
+  const [checkConfirmed, setCheckConfirmed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/today-check", { headers: { Accept: "application/json" } })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error("http " + r.status)))
+      .then(j => {
+        if (!alive) return;
+        const sErr = j && j.sumup && j.sumup.error;
+        const lErr = j && j.lucent && j.lucent.error;
+        if (j && j.ok && j.sumup && j.lucent && !sErr && !lErr && typeof j.gap === "number") {
+          setCheck({ loaded: true, sumup: j.sumup, lucent: j.lucent, gap: j.gap });
+        } else {
+          setCheck({ error: true });
+        }
+      })
+      .catch(() => { if (alive) setCheck({ error: true }); });
+    return () => { alive = false; };
+  }, []);
+  // 리포트로 설명된 금액 → 미설명 = gap − 설명 (실시간)
+  const reportExplained = report.reduce((a, r) => a + Math.max((Number(r.full)||0) - (Number(r.paid)||0), 0), 0);
+  const gap = (check && check.loaded) ? check.gap : null;
+  const unexplained = gap != null ? (gap - reportExplained) : null;
+  const cState = check == null ? "loading" : check.error ? "error"
+    : (unexplained >= 5 ? "red" : unexplained >= 1 ? "orange" : "green");
+  const cColor = cState === "red" ? "#e03131" : cState === "orange" ? "#e8590c" : cState === "green" ? "#2f9e44" : "#888";
+
   const save = async () => {
     const amt = cash === "" ? null : (parseFloat(cash) || 0);
     const updated = { ...sh, cashCount: amt, cashMemo: (memo || "").trim(), report };
+    if (check && check.loaded) {
+      updated.checkGap = check.gap;
+      updated.checkUnexplained = unexplained;
+      updated.checkConfirmed = !!checkConfirmed;
+      updated.checkLucentEur = check.lucent.eur;
+      updated.checkSumupEur = check.sumup.eur;
+    }
     const newShifts = (data.shifts||[]).map(x => x.id === sh.id ? updated : x);
     await persist({ ...data, shifts: newShifts });
     // 관리자 폰 퇴근 푸시 (fire-and-forget)
@@ -1121,6 +1157,37 @@ function CashOutModal({ modal, data, persist, close, toast }) {
             ? "🔑 지금 서랍의 현금 총액을 세서 입력하세요. (클로징에게 넘기는 인계 금액)"
             : "🌙 마감 서랍의 현금 총액을 세서 입력하세요. (오늘 마감 금액)"}
         </div>
+
+        {/* 실시간 대사 (오늘 루센트 vs 결제) */}
+        {cState === "loading" ? (
+          <div style={{fontSize:11,color:"#888",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12}}>⏳ 오늘 루센트↔결제 실시간 대조 확인 중…</div>
+        ) : cState === "error" ? (
+          <div style={{fontSize:11,color:"#1971c2",background:"rgba(77,171,247,.08)",border:"1px solid rgba(77,171,247,.3)",borderRadius:8,padding:10,marginBottom:12}}>ℹ️ 실시간 확인 준비중 — 야간 대조로 잡혀요. 서랍 현금·기록은 그대로 입력하세요.</div>
+        ) : (
+          <div style={{border:`1.5px solid ${cColor}`, background: cState==="green"?"rgba(47,158,68,.06)":cState==="orange"?"rgba(232,89,12,.06)":"rgba(255,107,107,.06)", borderRadius:8, padding:10, marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:cColor,marginBottom:3}}>
+              {cState==="green" ? "🟢 결제와 맞아요" : cState==="orange" ? "🟠 살짝 차이 (참고)" : "🔴 결제와 안 맞아요"}
+            </div>
+            <div style={{fontSize:11,color:"#555",marginBottom:unexplained>=1?6:0}}>
+              루센트 €{fmtE(check.lucent.eur)} ({check.lucent.count}건) vs 결제 €{fmtE(check.sumup.eur)} ({check.sumup.count}건)
+              {reportExplained>0 ? ` · 기록설명 €${fmtE(reportExplained)}` : ""}
+            </div>
+            {unexplained >= 1 ? (
+              <>
+                <div style={{fontSize:11,fontWeight:600,color:cColor,marginBottom:6}}>
+                  ❓ €{fmtE(unexplained)} 안 맞아요 — {cState==="red" ? "안 넣은 결제/무료/재촬영이 있나요? 아래에 기록하면 줄어들어요." : "가격 추정 오차일 수 있어요. 확인만 해주세요."}
+                </div>
+                <label style={{fontSize:11,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+                  <input type="checkbox" checked={checkConfirmed} onChange={e=>setCheckConfirmed(e.target.checked)} />
+                  확인했습니다 (더 없음 / 사유 기록함)
+                </label>
+              </>
+            ) : (
+              <div style={{fontSize:11,color:"#2f9e44"}}>기록 설명까지 반영해 맞습니다 👍</div>
+            )}
+          </div>
+        )}
+
         <div className="fr">
           <div>
             <label>서랍 현금 총액 €</label>
@@ -3475,6 +3542,8 @@ function ReconTab({ data, persist }) {
     }
   });
   const reportList = Object.values(reportByStaff);
+  // 퇴근 시 실시간 대조 스냅샷 (직원이 본 값 + 확인여부)
+  const checkShifts = dayShifts.filter(s => s.checkGap != null);
   const explainedTotal = reportList.reduce((a, r) => a + r.explained, 0);
   const unrecordedTotal = unSum;                       // 안찍힘(루센트 쿠폰 미기록 €합계)
   const unexplained = unrecordedTotal - explainedTotal; // 미설명 잔여
@@ -3677,7 +3746,7 @@ function ReconTab({ data, persist }) {
       </div>
 
       {/* 무료/할인/재촬영 자가기록 → 설명됨 vs 미설명 */}
-      {(rc || reportList.length) ? (
+      {(rc || reportList.length || checkShifts.length) ? (
         <div className="card" style={{marginBottom:12}}>
           <div style={{fontWeight:700,color:"#b8860b",marginBottom:6,fontSize:13}}>📸 무료/할인/재촬영 기록 <span style={{fontSize:10,color:"#888",fontWeight:400}}>(직원 자가기록)</span></div>
           <div style={{fontSize:10,color:"#888",marginBottom:10}}>퇴근 시 직원이 적은 "사진 찍혔지만 SumUp 미결제" 사유. 설명된 만큼 빼고 <strong>설명 안 되는 잔여</strong>가 진짜 봐야 할 신호.</div>
@@ -3698,6 +3767,21 @@ function ReconTab({ data, persist }) {
               ))}
             </div>
           ))}
+          {checkShifts.length ? (
+            <div style={{marginTop:4,marginBottom:8,padding:"8px 10px",background:"#f5f5f7",borderRadius:8}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#1971c2",marginBottom:4}}>🔎 퇴근 시 실시간 대조 (직원이 본 값)</div>
+              {checkShifts.map((s, i) => {
+                const u = Number(s.checkUnexplained)||0;
+                return (
+                  <div key={i} style={{fontSize:11,color:"#555",padding:"2px 0"}}>
+                    <span className={"badge "+(s.slotType==="오프닝"?"bylw":"bgrn")} style={{marginRight:4}}>{s.slotType}</span>
+                    {staffName(s.staffId)}: 루센트 €{fmtE(s.checkLucentEur)} vs 결제 €{fmtE(s.checkSumupEur)} · 미설명 <strong style={{color: u>=5?"#e03131":(u>=1?"#e8590c":"#2f9e44")}}>€{fmtE(u)}</strong>
+                    {s.checkConfirmed ? <span style={{color:"#2f9e44"}}> · ✓ 직원확인</span> : (u>=1 ? <span style={{color:"#e8590c"}}> · ⚠️ 미확인</span> : null)}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           {rc ? (
             <>
               <div className="g3" style={{marginTop:8,marginBottom:8}}>
