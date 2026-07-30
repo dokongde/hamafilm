@@ -1062,6 +1062,262 @@ function AddSalesModal({ data, persist, close, toast }) {
   );
 }
 
+// ─── 직원 퇴근 시 서랍 현금 입력 모달 ───
+// 오프닝=인계 금액 / 클로징=마감 금액. shift 레코드에 cashCount(숫자)+cashMemo 저장(spread 보존).
+// doCheckOut이 actualEnd·memo 세팅 후 이 모달로 넘김 → 여기서 최종 persist + 관리자 퇴근 푸시 + 토스트.
+function CashOutModal({ modal, data, persist, close, toast }) {
+  const sh = modal.shift;
+  const isOpening = sh.slotType === "오프닝";
+  const [cash, setCash] = useState(sh.cashCount != null ? String(sh.cashCount) : "");
+  const [memo, setMemo] = useState(sh.cashMemo || "");
+  const save = async () => {
+    const amt = cash === "" ? null : (parseFloat(cash) || 0);
+    const updated = { ...sh, cashCount: amt, cashMemo: (memo || "").trim() };
+    const newShifts = (data.shifts||[]).map(x => x.id === sh.id ? updated : x);
+    await persist({ ...data, shifts: newShifts });
+    // 관리자 폰 퇴근 푸시 (fire-and-forget)
+    try {
+      fetch(GAS_URL, {
+        method: "POST",
+        body: JSON.stringify({ pushAction: "clockEvent", staffId: modal.staffId, staffName: modal.staffName || "", type: "out", time: modal.outTime, planned: modal.planned || "" }),
+        headers: { "Content-Type": "text/plain;charset=utf-8" }, redirect: "follow"
+      }).catch(() => {});
+    } catch (e) { /* 무시 */ }
+    toast(`✅ 퇴근 완료 (${modal.outTime})`);
+    close();
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal">
+        <h3>🔴 퇴근 · 서랍 현금 입력</h3>
+        <div style={{fontSize:12,color:"#555",marginBottom:8}}>
+          <span className={"badge " + (isOpening ? "bylw" : "bgrn")} style={{marginRight:6}}>{sh.slotType}</span>
+          {sh.date} · 퇴근 {modal.outTime}
+        </div>
+        <div style={{fontSize:11,color:"#666",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12}}>
+          {isOpening
+            ? "🔑 지금 서랍의 현금 총액을 세서 입력하세요. (클로징에게 넘기는 인계 금액)"
+            : "🌙 마감 서랍의 현금 총액을 세서 입력하세요. (오늘 마감 금액)"}
+        </div>
+        <div className="fr">
+          <div>
+            <label>서랍 현금 총액 €</label>
+            <input type="number" inputMode="decimal" autoFocus value={cash} onChange={e=>setCash(e.target.value)} placeholder="지금 센 금액" />
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>메모 (선택)</label>
+            <input type="text" value={memo} onChange={e=>setMemo(e.target.value)} placeholder="예: 거스름돈 부족 / 재촬영 2건 등" />
+          </div>
+        </div>
+        <div style={{fontSize:10,color:"#aaa",marginBottom:8}}>* 금액 없이 완료해도 퇴근은 처리돼요. (관리자 대사에서 확인)</div>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={save}>퇴근 완료</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 매장 기기(kiosk) 코드 설정 (관리자 직원관리 화면) ───
+// settings.kioskCode 에 저장. 이 코드로 매장 아이패드를 '출퇴근 전용 모드'로 잠그고/해제.
+function KioskCodeSetting({ data, persist, toast }) {
+  const cur = (data.settings && data.settings.kioskCode) || "";
+  const [code, setCode] = useState(cur);
+  const save = async () => {
+    await persist({ ...data, settings: { ...(data.settings||{}), kioskCode: (code||"").trim() } });
+    toast("🏪 kiosk 코드 저장됨");
+  };
+  return (
+    <div>
+      <div style={{fontSize:11,color:"#888",marginBottom:8,lineHeight:1.5}}>
+        매장 아이패드를 이 코드로 <strong>출퇴근 전용 모드</strong>로 잠급니다. 잠금 해제도 이 코드가 필요해요 (직원이 못 빠져나가 매출·대사 등 못 봄).
+        <br/><span style={{color:"#b8860b"}}>⚠️ localStorage 토큰이라 100% 철벽은 아님 — 브라우저 데이터를 지우면 재설정 필요하고, 작정하면 우회 가능. 일반 직원 원격 출근 차단엔 충분합니다.</span>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <input type="text" value={code} onChange={e=>setCode(e.target.value)} placeholder="예: 4자리 이상" style={{maxWidth:170}} />
+        <button className="btn bp sm" onClick={save}>저장</button>
+        {cur ? <span style={{fontSize:10,color:"#2f9e44"}}>✓ 설정됨</span> : <span style={{fontSize:10,color:"#aaa"}}>미설정</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── kiosk 잠금/해제 코드 입력 모달 ───
+// intent="lock": 로그인화면에서 이 기기를 kiosk로 잠금 / intent="unlock": kiosk에서 빠져나가기
+function KioskGateModal({ modal, data, close, onSuccess, toast }) {
+  const isLock = modal.intent === "lock";
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState("");
+  const submit = () => {
+    const set = (data.settings && data.settings.kioskCode) || "";
+    if (!set) { setErr("사장님이 아직 kiosk 코드를 설정하지 않았어요 (관리자 → 직원 화면에서 설정)"); return; }
+    if ((code||"").trim() === set) {
+      onSuccess();
+      close();
+      toast(isLock ? "🏪 출퇴근 전용 모드로 잠금" : "🔓 기기 잠금 해제");
+    } else {
+      setErr("코드가 틀렸습니다");
+    }
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal" style={{maxWidth:340}}>
+        <h3>{isLock ? "🏪 매장 기기로 잠그기" : "🔓 기기 잠금 해제"}</h3>
+        <div style={{fontSize:11,color:"#666",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12,lineHeight:1.5}}>
+          {isLock
+            ? "이 기기를 출퇴근 전용 화면으로 잠급니다. 매출·스케줄·대사 등 민감 정보는 안 보이고, 해제하려면 이 코드가 필요합니다."
+            : "출퇴근 전용 모드를 해제합니다. 사장님만 아는 코드를 입력하세요."}
+        </div>
+        <div className="fr">
+          <div>
+            <label>kiosk 코드</label>
+            <input type="password" autoFocus value={code} onChange={e=>{setCode(e.target.value); setErr("");}}
+              onKeyDown={e=>{ if(e.key==="Enter") submit(); }} placeholder="사장님 설정 코드" />
+          </div>
+        </div>
+        {err ? <div style={{color:"#e03131",fontSize:11,marginBottom:8}}>{err}</div> : null}
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소</button>
+          <button className="btn bp" onClick={submit}>{isLock ? "잠그기" : "해제"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 출퇴근 전용 화면(kiosk) ───
+// 매장 아이패드 전용. 오직 직원 선택 → 본인 PIN → 출근/퇴근(+서랍 현금). 민감정보 전혀 없음.
+// 출퇴근·현금입력은 이 화면(잠긴 기기)에서만 가능.
+function KioskView({ data, persist, setModal, toast, onExit }) {
+  const [selId, setSelId] = useState(null);
+  const [authed, setAuthed] = useState(false);
+  const [pinBuf, setPinBuf] = useState("");
+  const [pinErr, setPinErr] = useState("");
+
+  const staff = (data.staff||[]);
+  const sel = staff.find(s => s.id === selId);
+  const today = todayStr();
+  const myShifts = (data.shifts||[])
+    .filter(s => s.staffId === selId && s.date === today && (s.slotType==="오프닝" || s.slotType==="클로징"))
+    .sort((a,b) => (a.slotType==="오프닝"?0:1) - (b.slotType==="오프닝"?0:1));
+
+  const notifyClock = (staffName, type, time, planned) => {
+    try {
+      fetch(GAS_URL, { method:"POST", body: JSON.stringify({ pushAction:"clockEvent", staffId: selId, staffName, type, time, planned: planned||"" }),
+        headers:{"Content-Type":"text/plain;charset=utf-8"}, redirect:"follow" }).catch(()=>{});
+    } catch(e){}
+  };
+  const nowHM = () => { const n=new Date(); return `${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}`; };
+
+  const pickStaff = (s) => { setSelId(s.id); setPinErr(""); setPinBuf(""); setAuthed(!s.pin); };
+  const back = () => { setSelId(null); setAuthed(false); setPinBuf(""); setPinErr(""); };
+  const doPin = (d) => {
+    if (pinBuf.length >= 4) return;
+    const nb = pinBuf + d; setPinBuf(nb); setPinErr("");
+    if (nb.length === 4) {
+      if (sel && nb === sel.pin) { setAuthed(true); setPinBuf(""); }
+      else { setPinErr("PIN 오류"); setTimeout(()=>setPinBuf(""), 600); }
+    }
+  };
+
+  const doCheckIn = async (s) => {
+    const time = nowHM();
+    await persist({ ...data, shifts: (data.shifts||[]).map(x => x.id===s.id ? {...x, actualStart:time} : x) });
+    toast(`✅ 출근 완료 (${time})`);
+    notifyClock(sel?.name||"", "in", time, s.start);
+  };
+  const doCheckOut = (s) => {
+    const time = nowHM();
+    // 서랍 현금 입력 모달로 넘김 (cash 모달이 최종 persist + 퇴근 푸시 처리)
+    setModal({ type:"cashOut", shift:{...s, actualEnd:time}, staffId: selId, staffName: sel?.name||"", outTime: time, planned: s.end });
+  };
+
+  return (
+    <div>
+      <div className="tb">
+        <div className="logo">💙 HAMAFILM<small>출퇴근</small></div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:10,color:"#2f9e44",fontWeight:600,padding:"3px 8px",borderRadius:10,background:"rgba(46,213,115,.12)"}}>🏪 매장 기기</span>
+          <button className="btn bs sm" onClick={onExit} title="사장님 코드 필요">🔧 나가기</button>
+        </div>
+      </div>
+      <div className="pg">
+        {!selId ? (
+          <div>
+            <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>출근 · 퇴근 👋</div>
+            <div style={{fontSize:12,color:"#888",marginBottom:16}}>본인 이름을 선택하세요.</div>
+            <div className="spc">
+              {staff.map(s => (
+                <div key={s.id} className="sc" onClick={()=>pickStaff(s)}>
+                  <div className="sav" style={{background:s.color}}>{s.name.slice(0,1)}</div>
+                  <div className="snm">{s.name}{s.pin ? <span style={{fontSize:9,marginLeft:3,color:"#888"}}>🔒</span> : null}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : !authed ? (
+          <div style={{maxWidth:320,margin:"0 auto"}}>
+            <div className="pb" style={{boxShadow:"none",padding:0}}>
+              <div className="sav" style={{background: sel?.color || "#4dabf7", margin:"0 auto 8px"}}>{sel?.name?.slice(0,1)||"?"}</div>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:4,textAlign:"center"}}>{sel?.name} 님</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:14,textAlign:"center"}}>PIN을 입력하세요</div>
+              <div className="pds">
+                {[0,1,2,3].map(i => <div key={i} className={"pde" + (i < pinBuf.length ? " f" : "")} />)}
+              </div>
+              {pinErr ? <div style={{color:"#ff4757",fontSize:12,marginBottom:8,textAlign:"center"}}>{pinErr}</div> : null}
+              <div className="ppd">
+                {[1,2,3,4,5,6,7,8,9].map(d => <button key={d} className="pb2" onClick={()=>doPin(String(d))}>{d}</button>)}
+                <button className="pb2" onClick={()=>doPin("0")} style={{gridColumn:2}}>0</button>
+                <button className="pb2" style={{fontSize:14,color:"#888"}} onClick={()=>setPinBuf(b=>b.slice(0,-1))}>⌫</button>
+              </div>
+              <button style={{background:"none",border:"none",color:"#888",fontSize:12,cursor:"pointer",display:"block",margin:"0 auto"}} onClick={back}>← 뒤로</button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+              <button className="btn bs sm" onClick={back}>← 뒤로</button>
+              <div style={{fontSize:16,fontWeight:700}}>{sel?.name} 님 · 오늘 근무</div>
+            </div>
+            <div className="card">
+              <div style={{fontSize:11,color:"#888",marginBottom:10}}>{today} ({dowKo(today)}) — 출근/퇴근을 눌러주세요.</div>
+              {myShifts.length === 0 ? (
+                <div style={{color:"#888",fontSize:13,padding:16,textAlign:"center"}}>오늘 배정된 근무가 없어요.</div>
+              ) : myShifts.map(s => {
+                const checkedIn = !!s.actualStart;
+                const checkedOut = !!s.actualEnd;
+                return (
+                  <div key={s.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 6px",borderBottom:"1px solid #eee",flexWrap:"wrap",gap:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <span className={"badge " + (s.slotType==="오프닝"?"bylw":"bgrn")}>{s.slotType}</span>
+                      <span className="mn" style={{fontSize:12,color:"#888"}}>{s.start}~{s.end}</span>
+                      {checkedIn ? <span className="mn" style={{fontSize:11,color:"#20a060"}}>{s.actualStart}~{s.actualEnd||"..."}</span> : null}
+                      {s.cashCount != null ? <span style={{fontSize:11,color:"#1971c2"}}>💶 €{fmtE(s.cashCount)}</span> : null}
+                    </div>
+                    <div>
+                      {!checkedIn ? (
+                        <button className="btn bp" onClick={()=>doCheckIn(s)}>🟢 출근</button>
+                      ) : !checkedOut ? (
+                        <button className="btn bp" onClick={()=>doCheckOut(s)}>🔴 퇴근</button>
+                      ) : (
+                        <span style={{fontSize:13,color:"#20a060",fontWeight:700}}>✓ 완료</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{fontSize:10,color:"#aaa",textAlign:"center",marginTop:12}}>퇴근 시 서랍 현금 총액을 입력합니다 (오프닝=인계 / 클로징=마감).</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── 직원 화면: 출근 알림 카드 ───
 // PUSH_CONFIG.enabled=false 인 동안에는 아무것도 렌더하지 않음 (미완성 기능 비노출)
 function StaffPushCard({ staffId, staffName, toast }) {
@@ -3126,6 +3382,29 @@ function ReconTab({ data, persist }) {
   const isShort = kd && kdDiff < -1;
   const closes = (kd && Array.isArray(kd.closes)) ? kd.closes : [];
 
+  // ===== 인계 사슬: 직원이 퇴근 시 입력한 서랍 현금(cashCount) =====
+  const openCounts = dayShifts.filter(s => s.slotType === "오프닝" && s.cashCount != null).map(s => ({ name: staffName(s.staffId), cash: Number(s.cashCount)||0, memo: s.cashMemo || "" }));
+  const closeCounts = dayShifts.filter(s => s.slotType === "클로징" && s.cashCount != null).map(s => ({ name: staffName(s.staffId), cash: Number(s.cashCount)||0, memo: s.cashMemo || "" }));
+  const hasChain = openCounts.length > 0 || closeCounts.length > 0;
+  const empClose = closeCounts.length ? closeCounts.reduce((a, c) => a + c.cash, 0) : null; // 직원이 센 마감 합계
+  const empOpen = openCounts.length ? openCounts.reduce((a, c) => a + c.cash, 0) : null;    // 오프닝 인계 합계
+  // 카세북 최종 마감(마지막 close = Endsaldo)
+  const lastClose = closes.length ? closes[closes.length - 1] : null;
+  const kdAct = lastClose && lastClose.act != null ? (Number(lastClose.act)||0) : null; // 카세북 실제
+  const kdExp = lastClose && lastClose.exp != null ? (Number(lastClose.exp)||0) : null; // 기대
+  // 3자 비교: 직원 마감액 vs 카세북 실제 vs 기대
+  const empVsAct = (empClose != null && kdAct != null) ? (empClose - kdAct) : null;
+  let chainVerdict = null;
+  if (empClose == null) {
+    chainVerdict = { icon:"⚪", color:"#888", text:"직원 마감액 미입력 — 퇴근 시 입력 유도" };
+  } else if (kdAct == null) {
+    chainVerdict = { icon:"⚪", color:"#888", text:"카세북 마감(실제) 없음 — 직원 입력만 있음" };
+  } else if (Math.abs(empVsAct) <= 1) {
+    chainVerdict = { icon:"🟢", color:"#2f9e44", text:"직원 마감액 = 카세북 실제 (일치)" };
+  } else {
+    chainVerdict = { icon:"🔴", color:"#e03131", text:`직원 마감액과 카세북 실제 불일치 (${empVsAct>=0?"+":"−"}€${fmtE(Math.abs(empVsAct))}) — 오카운트/누락 확인` };
+  }
+
   // ===== 건수 대조 (참고) =====
   const cpN = rc ? (rc.cp_n||0) : 0;
   const suPhotos = rc && rc.su_photos != null ? rc.su_photos : null; // 묶음결제 반영 SumUp 사진 장수
@@ -3249,6 +3528,64 @@ function ReconTab({ data, persist }) {
           <span className="badge bylw" style={{marginRight:8}}>오프닝</span>
           {openingStaff.length ? openingStaff.map(s=>s.name).join(", ") : "미배정"}
         </div>
+      </div>
+
+      {/* 인계 사슬 — 직원이 퇴근 시 입력한 서랍 현금 */}
+      <div className="card" style={{marginBottom:12}}>
+        <div style={{fontWeight:700,color:"#1971c2",marginBottom:6,fontSize:13}}>🔗 인계 사슬 (직원이 센 서랍 현금)</div>
+        <div style={{fontSize:10,color:"#888",marginBottom:10}}>퇴근 시 직원이 직접 센 금액. 시프트 단위로 어디서 어긋났는지 추적 (오카운트 가능, 단정 금지).</div>
+        {!hasChain ? (
+          <div style={{fontSize:12,color:"#aaa",padding:8}}>아직 직원이 입력한 서랍 현금이 없어요 (퇴근 시 입력).</div>
+        ) : (
+          <>
+            {/* 인계 흐름 */}
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10,fontSize:13}}>
+              <div style={{background:"rgba(255,212,0,.12)",borderRadius:8,padding:"8px 12px"}}>
+                <span className="badge bylw" style={{marginRight:6}}>오프닝 인계</span>
+                {openCounts.length ? openCounts.map((c,i)=>(
+                  <span key={i} style={{marginRight:8}}>
+                    <strong className="mn">€{fmtE(c.cash)}</strong> <span style={{fontSize:11,color:"#888"}}>({c.name}{c.memo?` · ${c.memo}`:""})</span>
+                  </span>
+                )) : <span style={{fontSize:11,color:"#aaa"}}>미입력</span>}
+              </div>
+              <span style={{fontSize:18,color:"#888"}}>→</span>
+              <div style={{background:"rgba(47,158,68,.1)",borderRadius:8,padding:"8px 12px"}}>
+                <span className="badge bgrn" style={{marginRight:6}}>클로징 마감</span>
+                {closeCounts.length ? closeCounts.map((c,i)=>(
+                  <span key={i} style={{marginRight:8}}>
+                    <strong className="mn">€{fmtE(c.cash)}</strong> <span style={{fontSize:11,color:"#888"}}>({c.name}{c.memo?` · ${c.memo}`:""})</span>
+                  </span>
+                )) : <span style={{fontSize:11,color:"#aaa"}}>미입력</span>}
+              </div>
+            </div>
+
+            {/* 3자 비교: 직원 마감액 vs 카세북 실제 vs 기대 */}
+            <div className="g3" style={{marginBottom:10}}>
+              <div className="chip">
+                <div className="lb">🧑 직원 마감 (입력)</div>
+                <div className="vl">{empClose != null ? "€"+fmtE(empClose) : "—"}</div>
+              </div>
+              <div className="chip">
+                <div className="lb">📒 카세북 실제</div>
+                <div className="vl" style={{color: empVsAct!=null && Math.abs(empVsAct)>1 ? "#e03131":"#1a1a1a"}}>{kdAct != null ? "€"+fmtE(kdAct) : "—"}</div>
+              </div>
+              <div className="chip">
+                <div className="lb">🎯 기대 (Soll)</div>
+                <div className="vl" style={{color:"#888"}}>{kdExp != null ? "€"+fmtE(kdExp) : "—"}</div>
+              </div>
+            </div>
+
+            <div className="card" style={{border:`1px solid ${chainVerdict.color}`, background: chainVerdict.icon==="🔴"?"rgba(255,107,107,.06)":(chainVerdict.icon==="🟢"?"rgba(47,158,68,.06)":"#f5f5f7"), display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div style={{fontSize:12,fontWeight:700,color:chainVerdict.color}}>{chainVerdict.icon} {chainVerdict.text}</div>
+              {empClose != null && kdExp != null ? (
+                <div style={{fontSize:10,color:"#888"}}>직원마감 €{fmtE(empClose)} · 카세북 €{kdAct!=null?fmtE(kdAct):"—"} · 기대 €{fmtE(kdExp)}</div>
+              ) : null}
+            </div>
+            {empOpen != null ? (
+              <div style={{fontSize:10,color:"#888",marginTop:8}}>ℹ️ 오프닝이 인계한 €{fmtE(empOpen)}는 클로징이 이어받은 시재입니다. 마감액과의 흐름으로 시프트별 이상을 살펴보세요.</div>
+            ) : null}
+          </>
+        )}
       </div>
 
       {/* 건수 대조 (참고) */}
@@ -4059,6 +4396,10 @@ export default function App() {
   const [svSel, setSvSel] = useState(null);
   const [storageMode, setStorageMode] = useState("loading");
   const [lastError, setLastError] = useState("");
+  // 출퇴근 전용(kiosk) 기기 잠금 — 각 기기 localStorage에 저장
+  const [kioskLocked, setKioskLocked] = useState(() => { try { return localStorage.getItem("hama_kiosk") === "1"; } catch(e) { return false; } });
+  const lockKiosk = () => { try { localStorage.setItem("hama_kiosk", "1"); } catch(e) {} setKioskLocked(true); };
+  const unlockKiosk = () => { try { localStorage.removeItem("hama_kiosk"); } catch(e) {} setKioskLocked(false); };
 
   // data가 바뀔 때마다 vacations를 전역 변수에 동기화 (getSlots에서 사용)
   useEffect(() => {
@@ -4793,6 +5134,11 @@ export default function App() {
         <div className="ct" style={{color:"#f5c518"}}>🔐 관리자 PIN 변경</div>
         <PinChange pin={pin} setPin={setPin} />
       </div>
+
+      <div className="card" style={{marginTop:12,border:"1px solid rgba(77,171,247,.25)"}}>
+        <div className="ct" style={{color:"#1971c2"}}>🏪 매장 기기(출퇴근 kiosk) 코드</div>
+        <KioskCodeSetting data={data} persist={persist} toast={showToast} />
+      </div>
     </div>
   );
 
@@ -4937,6 +5283,10 @@ export default function App() {
                     </div>
                   </div>
                 ))}
+              </div>
+              <div style={{marginTop:18,textAlign:"center"}}>
+                <button className="btn bs sm" style={{fontSize:11,color:"#888"}} onClick={()=>setModal({type:"kioskGate", intent:"lock"})}>🏪 매장 기기 설정</button>
+                <div style={{fontSize:9,color:"#bbb",marginTop:4}}>매장 아이패드를 출퇴근 전용 모드로 잠글 때만 사용</div>
               </div>
             </div>
           ) : (
@@ -5391,12 +5741,8 @@ export default function App() {
                             }
                           }
 
-                          const newShifts = (data.shifts||[]).map(sh =>
-                            sh.id === s.id ? updatedShift : sh
-                          );
-                          await persist({...data, shifts: newShifts});
-                          showToast(`✅ 퇴근 완료 (${time})`);
-                          notifyClockEvent("out", time, s.end);
+                          // 서랍 현금 입력 모달로 넘김 — 모달에서 최종 persist + 퇴근 푸시 + 토스트 처리
+                          setModal({ type: "cashOut", shift: updatedShift, staffId: svSid, staffName: me?.name || "", outTime: time, planned: s.end });
                         };
 
                         return (
@@ -5416,20 +5762,12 @@ export default function App() {
                               )}
                             </td>
                             <td>
-                              {!checkedIn ? (
-                                <button
-                                  className={"btn " + (isToday ? "bp" : "bs") + " sm"}
-                                  onClick={doCheckIn}
-                                  disabled={!isToday && !isPast}
-                                  title={!isToday && !isPast ? "당일이나 지난 날만 가능" : ""}>
-                                  🟢 출근
-                                </button>
-                              ) : !checkedOut ? (
-                                <button className="btn bp sm" onClick={doCheckOut}>
-                                  🔴 퇴근
-                                </button>
-                              ) : (
+                              {checkedOut ? (
                                 <span style={{fontSize:10,color:"#20a060",fontWeight:600}}>✓ 완료</span>
+                              ) : checkedIn ? (
+                                <span style={{fontSize:10,color:"#e8590c",fontWeight:600}}>근무중</span>
+                              ) : (
+                                <span style={{fontSize:9,color:"#aaa"}} title="출퇴근은 매장 기기(kiosk)에서만 가능합니다">🏪 매장기기</span>
                               )}
                             </td>
                             <td className="mn" style={{color:"#1971c2",fontSize:11}}>€{fmtE(pay)}</td>
@@ -5798,6 +6136,8 @@ export default function App() {
     if (modal.type === "addVac") return <AddVacModal data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "addStaff") return <AddStaffModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "addSales") return <AddSalesModal data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "cashOut") return <CashOutModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "kioskGate") return <KioskGateModal modal={modal} data={data} close={closeModal} onSuccess={modal.intent === "lock" ? lockKiosk : unlockKiosk} toast={showToast} />;
     if (modal.type === "genFixed") return <GenFixedModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} isVac={isVac} />;
     if (modal.type === "addPayroll") return <AddPayrollModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
     if (modal.type === "editPayment") return <EditPaymentModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} gSt={gSt} />;
@@ -5825,7 +6165,11 @@ export default function App() {
   return (
     <>
       <style>{css}</style>
-      {mode === "staff" ? <ErrorBoundary label="직원 화면"><Screen render={renderStaffView} /></ErrorBoundary> : (
+      {kioskLocked ? (
+        <ErrorBoundary label="출퇴근 기기"><Screen render={() => (
+          <KioskView data={data} persist={persist} setModal={setModal} toast={showToast} onExit={()=>setModal({type:"kioskGate", intent:"unlock"})} />
+        )} /></ErrorBoundary>
+      ) : mode === "staff" ? <ErrorBoundary label="직원 화면"><Screen render={renderStaffView} /></ErrorBoundary> : (
         <div>
           <div className="tb">
             <div className="logo">💙 HAMAFILM<small>관리자</small></div>
