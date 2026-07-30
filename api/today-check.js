@@ -106,7 +106,8 @@ export default async function handler(req, res) {
   if (token && (req.query.token || "") !== token) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
   }
-  const today = berlinToday();
+  // 기본은 오늘(베를린). ?date=YYYY-MM-DD 로 과거 조회 가능(검증/특정일용).
+  const today = (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date || "")) ? req.query.date : berlinToday();
   const out = { ok: true, date: today, sumup: null, lucent: null };
   try { out.sumup = await getSumupToday(process.env.SUMUP_API_KEY, today); }
   catch (e) { out.sumup = { error: String(e).slice(0, 120) }; }
