@@ -1065,14 +1065,36 @@ function AddSalesModal({ data, persist, close, toast }) {
 // ─── 직원 퇴근 시 서랍 현금 입력 모달 ───
 // 오프닝=인계 금액 / 클로징=마감 금액. shift 레코드에 cashCount(숫자)+cashMemo 저장(spread 보존).
 // doCheckOut이 actualEnd·memo 세팅 후 이 모달로 넘김 → 여기서 최종 persist + 관리자 퇴근 푸시 + 토스트.
+const REPORT_KINDS = [
+  { k: "free",    label: "🎁 프리샷(무료)" },
+  { k: "partial", label: "🎟 부분쿠폰" },
+  { k: "reshoot", label: "🔄 재촬영" },
+  { k: "etc",     label: "기타" }
+];
+const reportKindLabel = (k) => (REPORT_KINDS.find(x => x.k === k) || { label: k }).label;
+
 function CashOutModal({ modal, data, persist, close, toast }) {
   const sh = modal.shift;
   const isOpening = sh.slotType === "오프닝";
   const [cash, setCash] = useState(sh.cashCount != null ? String(sh.cashCount) : "");
   const [memo, setMemo] = useState(sh.cashMemo || "");
+  // 무료/할인/재촬영 자가기록
+  const [report, setReport] = useState(Array.isArray(sh.report) ? sh.report : []);
+  const [rKind, setRKind] = useState("free");
+  const [rFull, setRFull] = useState("");
+  const [rPaid, setRPaid] = useState("");
+  const [rNote, setRNote] = useState("");
+  const addReport = () => {
+    const full = parseFloat(rFull) || 0;
+    const paid = parseFloat(rPaid) || 0;
+    setReport([...report, { kind: rKind, full, paid, note: (rNote || "").trim() }]);
+    setRFull(""); setRPaid(""); setRNote(""); setRKind("free");
+  };
+  const removeReport = (i) => setReport(report.filter((_, ix) => ix !== i));
+
   const save = async () => {
     const amt = cash === "" ? null : (parseFloat(cash) || 0);
-    const updated = { ...sh, cashCount: amt, cashMemo: (memo || "").trim() };
+    const updated = { ...sh, cashCount: amt, cashMemo: (memo || "").trim(), report };
     const newShifts = (data.shifts||[]).map(x => x.id === sh.id ? updated : x);
     await persist({ ...data, shifts: newShifts });
     // 관리자 폰 퇴근 푸시 (fire-and-forget)
@@ -1111,7 +1133,42 @@ function CashOutModal({ modal, data, persist, close, toast }) {
             <input type="text" value={memo} onChange={e=>setMemo(e.target.value)} placeholder="예: 거스름돈 부족 / 재촬영 2건 등" />
           </div>
         </div>
-        <div style={{fontSize:10,color:"#aaa",marginBottom:8}}>* 금액 없이 완료해도 퇴근은 처리돼요. (관리자 대사에서 확인)</div>
+        <div style={{fontSize:10,color:"#aaa",marginBottom:12}}>* 금액 없이 완료해도 퇴근은 처리돼요. (관리자 대사에서 확인)</div>
+
+        {/* 무료/할인/재촬영 자가기록 */}
+        <div style={{borderTop:"1px solid #eee",paddingTop:10}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#b8860b",marginBottom:2}}>📸 오늘 무료/할인/재촬영 기록 (선택)</div>
+          <div style={{fontSize:10,color:"#888",marginBottom:8}}>사진은 찍혔는데 SumUp 결제가 €0이거나 일부만 된 경우를 적어주세요. (원가 → 실제 받은 금액)</div>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
+            {REPORT_KINDS.map(x => (
+              <button key={x.k} onClick={()=>setRKind(x.k)}
+                style={{padding:"4px 8px",borderRadius:12,fontSize:11,cursor:"pointer",
+                  border: rKind===x.k ? "1px solid #4dabf7" : "1px solid #ddd",
+                  background: rKind===x.k ? "rgba(77,171,247,.12)" : "#fff",
+                  color: rKind===x.k ? "#1971c2" : "#666", fontWeight: rKind===x.k ? 700 : 400}}>
+                {x.label}
+              </button>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
+            <input type="number" value={rFull} onChange={e=>setRFull(e.target.value)} placeholder="원가 €" style={{width:78}} />
+            <span style={{color:"#888"}}>→</span>
+            <input type="number" value={rPaid} onChange={e=>setRPaid(e.target.value)} placeholder="받은 €" style={{width:78}} />
+            <input type="text" value={rNote} onChange={e=>setRNote(e.target.value)} placeholder="메모(선택)" style={{width:110}} />
+            <button className="btn bp sm" onClick={addReport}>+ 추가</button>
+          </div>
+          {report.length > 0 ? (
+            <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:4}}>
+              {report.map((r, i) => (
+                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,background:"#f5f5f7",borderRadius:6,padding:"4px 8px"}}>
+                  <span>{reportKindLabel(r.kind)} · €{fmtE(r.full)}→€{fmtE(r.paid)} <span style={{color:"#2f9e44"}}>(할인 €{fmtE(Math.max((Number(r.full)||0)-(Number(r.paid)||0),0))})</span>{r.note ? ` · ${r.note}` : ""}</span>
+                  <button className="btn bd sm" onClick={()=>removeReport(i)}>삭제</button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
         <div className="mf">
           <button className="btn bs" onClick={close}>취소</button>
           <button className="btn bp" onClick={save}>퇴근 완료</button>
@@ -3405,6 +3462,37 @@ function ReconTab({ data, persist }) {
     chainVerdict = { icon:"🔴", color:"#e03131", text:`직원 마감액과 카세북 실제 불일치 (${empVsAct>=0?"+":"−"}€${fmtE(Math.abs(empVsAct))}) — 오카운트/누락 확인` };
   }
 
+  // ===== 무료/할인/재촬영 자가기록(report) → 설명됨 vs 미설명 =====
+  const reportByStaff = {};
+  dayShifts.forEach(s => {
+    if (Array.isArray(s.report) && s.report.length) {
+      const key = s.staffId;
+      if (!reportByStaff[key]) reportByStaff[key] = { staffId: s.staffId, name: staffName(s.staffId), slotType: s.slotType, sanctioned: isSanctioned(s.staffId), items: [], explained: 0 };
+      s.report.forEach(r => {
+        reportByStaff[key].items.push(r);
+        reportByStaff[key].explained += Math.max((Number(r.full)||0) - (Number(r.paid)||0), 0);
+      });
+    }
+  });
+  const reportList = Object.values(reportByStaff);
+  const explainedTotal = reportList.reduce((a, r) => a + r.explained, 0);
+  const unrecordedTotal = unSum;                       // 안찍힘(루센트 쿠폰 미기록 €합계)
+  const unexplained = unrecordedTotal - explainedTotal; // 미설명 잔여
+  // 인정 직원 몫 제외한 빼돌림 의심
+  const unValByStaff = {};
+  Object.values(groups).forEach(g => { if (g.staffId != null) unValByStaff[g.staffId] = (unValByStaff[g.staffId]||0) + g.sum; });
+  let sanctionedUnexplained = 0;
+  Object.keys(unValByStaff).forEach(id => {
+    if (isSanctioned(Number(id))) {
+      const exp = reportByStaff[id]?.explained || 0;
+      sanctionedUnexplained += Math.max(unValByStaff[id] - exp, 0);
+    }
+  });
+  const suspUnexplained = Math.max(unexplained - sanctionedUnexplained, 0);
+  const unexpVerdict = unexplained <= 1
+    ? { icon:"🟢", color:"#2f9e44", text:"안찍힘이 모두 설명됨" }
+    : { icon:"🔴", color:"#e03131", text:"설명 안 되는 잔여 있음 — 확인 필요" };
+
   // ===== 건수 대조 (참고) =====
   const cpN = rc ? (rc.cp_n||0) : 0;
   const suPhotos = rc && rc.su_photos != null ? rc.su_photos : null; // 묶음결제 반영 SumUp 사진 장수
@@ -3587,6 +3675,49 @@ function ReconTab({ data, persist }) {
           </>
         )}
       </div>
+
+      {/* 무료/할인/재촬영 자가기록 → 설명됨 vs 미설명 */}
+      {(rc || reportList.length) ? (
+        <div className="card" style={{marginBottom:12}}>
+          <div style={{fontWeight:700,color:"#b8860b",marginBottom:6,fontSize:13}}>📸 무료/할인/재촬영 기록 <span style={{fontSize:10,color:"#888",fontWeight:400}}>(직원 자가기록)</span></div>
+          <div style={{fontSize:10,color:"#888",marginBottom:10}}>퇴근 시 직원이 적은 "사진 찍혔지만 SumUp 미결제" 사유. 설명된 만큼 빼고 <strong>설명 안 되는 잔여</strong>가 진짜 봐야 할 신호.</div>
+          {reportList.length === 0 ? (
+            <div style={{fontSize:12,color:"#aaa",padding:8,marginBottom:8}}>직원 기록 없음 (퇴근 시 kiosk에서 입력).</div>
+          ) : reportList.map((rp, gi) => (
+            <div key={gi} style={{marginBottom:10,paddingBottom:8,borderBottom:gi<reportList.length-1?"1px solid #f0f0f0":"none"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                <span className={"badge "+(rp.slotType==="오프닝"?"bylw":"bgrn")}>{rp.slotType}</span>
+                <strong style={{fontSize:13}}>{rp.name}</strong>
+                {rp.sanctioned ? <span className="badge" style={{background:"rgba(77,171,247,.15)",color:"#1971c2"}}>🤝 인정</span> : null}
+                <span style={{fontSize:11,color:"#2f9e44"}}>설명 €{fmtE(rp.explained)} · {rp.items.length}건</span>
+              </div>
+              {rp.items.map((r, ri) => (
+                <div key={ri} style={{fontSize:11,color:"#555",padding:"2px 0 2px 10px"}}>
+                  {reportKindLabel(r.kind)} · €{fmtE(r.full)}→€{fmtE(r.paid)} <span style={{color:"#b8860b"}}>(할인 €{fmtE(Math.max((Number(r.full)||0)-(Number(r.paid)||0),0))})</span>{r.note ? ` · ${r.note}` : ""}
+                </div>
+              ))}
+            </div>
+          ))}
+          {rc ? (
+            <>
+              <div className="g3" style={{marginTop:8,marginBottom:8}}>
+                <div className="chip"><div className="lb">❓ 안찍힘(루센트 미기록)</div><div className="vl" style={{color:"#e8590c"}}>€{fmtE(unrecordedTotal)}</div></div>
+                <div className="chip"><div className="lb">✅ 설명됨(무료·할인)</div><div className="vl" style={{color:"#2f9e44"}}>€{fmtE(explainedTotal)}</div></div>
+                <div className="chip" style={{background: unexplained>1 ? "rgba(255,107,107,.08)" : "rgba(47,158,68,.08)"}}><div className="lb">❓ 미설명 잔여</div><div className="vl" style={{color: unexplained>1 ? "#e03131" : "#2f9e44"}}>€{fmtE(unexplained)}</div></div>
+              </div>
+              <div className="card" style={{border:`1px solid ${unexpVerdict.color}`, background: unexplained>1 ? "rgba(255,107,107,.06)" : "rgba(47,158,68,.06)", display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:12,fontWeight:700,color:unexpVerdict.color}}>{unexpVerdict.icon} {unexpVerdict.text}</div>
+                <div style={{fontSize:11,color:"#888"}}>안찍힘 €{fmtE(unrecordedTotal)} − 설명 €{fmtE(explainedTotal)} = 미설명 €{fmtE(unexplained)}{sanctionedUnexplained>0 ? ` · 인정제외 의심 €${fmtE(suspUnexplained)}` : ""}</div>
+              </div>
+              <div style={{fontSize:9,color:"#aaa",marginTop:6}}>* "안찍힘"은 루센트 쿠폰 미기록(값기반, 노이즈 있음)이라 참고용. report가 주 기록수단이며, 미설명이 크면 마감 근무자·카세북 차액과 함께 종합 판단하세요.</div>
+            </>
+          ) : (
+            <div style={{fontSize:11,color:"#888",marginTop:8,padding:"8px 10px",background:"#f5f5f7",borderRadius:8}}>
+              ✅ 오늘 설명된 무료·할인 합계 <strong style={{color:"#2f9e44"}}>€{fmtE(explainedTotal)}</strong> · 안찍힘(루센트 쿠폰 미기록)과의 대조는 <strong>야간 집계(rc) 후</strong> 표시됩니다.
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* 건수 대조 (참고) */}
       {rc ? (
