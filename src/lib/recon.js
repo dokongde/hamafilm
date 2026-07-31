@@ -7,13 +7,16 @@ const toMin = t => { const [h, m] = String(t || "").split(":").map(Number); retu
 const r2 = n => Math.round(n * 100) / 100; // 센트 반올림
 
 // 그날 sales 레코드(rec) 하나를 받아 사진구멍을 분해한다.
-// 반환: { explained, unexplained, sukking, nurak, reportSum, admSum, naaxOverflow, fsSum }
+// 반환: { explained, unexplained, sukking, nurak, sukkingEst, skMade, reportSum, admSum, naaxOverflow, fsSum }
 //  - explained    = 직원 리포트 합 + 관리자 사후설명(adm) 합 + 나약스초과 max(0, nx−mk) + 과거 fs마킹 합
 //  - unexplained  = max(0, sk − explained)
-//  - nurak(누락)  = 비인정(+미배정·시간대외) 세션 비율만큼의 미설명 몫 — 매출 아님
-//  - sukking      = 미설명 중 인정직원 몫 (사장님 현금 = 매출 맞음)
+//  - nurak(누락)  = 비인정 몫 — 매출 아님 / sukking = 인정직원 몫 (사장님 현금 = 매출 맞음)
+//  - skMade       = 그날 인정직원 슈킹 자진신고 합 (shift.skMade "오늘 만든 현금") — explained에는 넣지 않고
+//                   분배 단계에서만 사용: 신고가 있으면 sukking = min(skMade, unexplained) 확정, 누락 = 나머지.
+//                   신고가 없으면 un 세션 비율 분배(sukkingEst)를 그대로 사용.
+//  - sukkingEst   = 세션 비율 기반 인정몫 추정치 (신고와 비교 표시용)
 function attributeGap(data, rec) {
-  const zero = { explained: 0, unexplained: 0, sukking: 0, nurak: 0, reportSum: 0, admSum: 0, naaxOverflow: 0, fsSum: 0 };
+  const zero = { explained: 0, unexplained: 0, sukking: 0, nurak: 0, sukkingEst: 0, skMade: 0, reportSum: 0, admSum: 0, naaxOverflow: 0, fsSum: 0 };
   if (!rec) return zero;
 
   const date = rec.date;
@@ -36,9 +39,12 @@ function attributeGap(data, rec) {
   const isMarked = (t, v) => fs.some(f => f.t === t && Number(f.v) === Number(v));
   const fsSum = un.filter(s => isMarked(s.t, s.v)).reduce((a, s) => a + (Number(s.v) || 0), 0);
 
+  // 인정직원 슈킹 자진신고 합 ("오늘 만든 현금" — 안 찍은 현금, 서랍 무관)
+  const skMadeTotal = r2(dayShifts.reduce((a, s) => a + (s.skMade != null ? (Number(s.skMade) || 0) : 0), 0));
+
   const explained = reportSum + admSum + naaxOverflow + fsSum;
   const unexplained = Math.max(0, r2(sk - explained));
-  if (unexplained === 0) return { ...zero, explained, reportSum, admSum, naaxOverflow, fsSum };
+  if (unexplained === 0) return { ...zero, explained, skMade: skMadeTotal, reportSum, admSum, naaxOverflow, fsSum };
 
   // ── un 세션 → 슬롯 → 그날 시프트 → 직원: 인정 세션합(S) vs 비인정+미배정 세션합(N) ──
   const slots = getSlots(date); // 방학 여부 자동 감지
@@ -52,17 +58,28 @@ function attributeGap(data, rec) {
     else N += v; // 미배정·시간대 외는 비인정 취급 (보수적)
   });
 
-  let nurak, sukking;
+  // 1) 세션 비율 기반 추정 분배
+  let nurakEst, sukkingEst;
   if (S + N > 0) {
-    nurak = r2(unexplained * N / (S + N));
-    sukking = r2(unexplained - nurak);
+    nurakEst = r2(unexplained * N / (S + N));
+    sukkingEst = r2(unexplained - nurakEst);
   } else {
     // rc/un 없음 → 그날 시프트에 인정직원이 있으면 전부 슈킹, 없으면 전부 누락
     const hasSanc = dayShifts.some(sh => isSanctioned(sh.staffId));
-    nurak = hasSanc ? 0 : unexplained;
-    sukking = hasSanc ? unexplained : 0;
+    nurakEst = hasSanc ? 0 : unexplained;
+    sukkingEst = hasSanc ? unexplained : 0;
   }
-  return { explained, unexplained, sukking, nurak, reportSum, admSum, naaxOverflow, fsSum };
+
+  // 2) 슈킹 자진신고(skMade)가 있으면 신고 기준으로 확정: 인정 = min(신고, 미설명), 누락 = 나머지
+  let nurak, sukking;
+  if (skMadeTotal > 0) {
+    sukking = Math.min(skMadeTotal, unexplained);
+    nurak = r2(unexplained - sukking);
+  } else {
+    sukking = sukkingEst;
+    nurak = nurakEst;
+  }
+  return { explained, unexplained, sukking, nurak, sukkingEst, skMade: skMadeTotal, reportSum, admSum, naaxOverflow, fsSum };
 }
 
 // 월 누락 합계

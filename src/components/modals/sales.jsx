@@ -60,11 +60,69 @@ function AddSalesModal({ data, persist, close, toast }) {
   );
 }
 
+// 오프닝 출근: 시작 시재(floatStart) 입력(선택) → actualStart와 함께 저장 + 출근 푸시.
+// kiosk의 doCheckIn(오프닝)이 이 모달로 넘김. 시재를 입력해두면 퇴근 때 서랍 비교가 가능해짐.
+function CashInModal({ modal, data, persist, close, toast }) {
+  const sh = modal.shift; // {...shift, actualStart: time}
+  const [cash, setCash] = useState(sh.floatStart != null ? String(sh.floatStart) : "");
+  const save = async () => {
+    const amt = cash === "" ? null : (parseFloat(cash) || 0);
+    const updated = { ...sh };
+    if (amt != null) updated.floatStart = amt;
+    await persist({ ...data, shifts: (data.shifts||[]).map(x => x.id === sh.id ? updated : x) });
+    // 관리자 폰 출근 푸시 (fire-and-forget)
+    try {
+      fetch(GAS_URL, {
+        method: "POST",
+        body: JSON.stringify({ pushAction: "clockEvent", staffId: modal.staffId, staffName: modal.staffName || "", type: "in", time: modal.inTime, planned: modal.planned || "" }),
+        headers: { "Content-Type": "text/plain;charset=utf-8" }, redirect: "follow"
+      }).catch(() => {});
+    } catch (e) { /* 무시 */ }
+    toast(`✅ 출근 완료 (${modal.inTime})`);
+    close();
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal" style={{maxWidth:360}}>
+        <h3>🟢 출근 · 시작 시재</h3>
+        <div style={{fontSize:12,color:"#555",marginBottom:8}}>
+          <span className="badge bylw" style={{marginRight:6}}>오프닝</span>
+          {sh.date} · 출근 {modal.inTime}
+        </div>
+        <div style={{fontSize:11,color:"#666",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12,lineHeight:1.5}}>
+          🔑 지금 서랍에 있는 현금 총액(시작 시재)을 세서 입력하세요. <strong>선택사항</strong>이지만, 입력해두면 퇴근 때 서랍이 맞는지 자동으로 비교해줘요.
+        </div>
+        <div className="fr">
+          <div>
+            <label>시작 시재 € (선택)</label>
+            <input type="number" inputMode="decimal" autoFocus value={cash} onChange={e=>setCash(e.target.value)} placeholder="지금 서랍에 있는 금액" />
+          </div>
+        </div>
+        <div style={{fontSize:10,color:"#aaa",marginBottom:12}}>* 비워두고 출근해도 돼요 (그 경우 퇴근 때 서랍 비교는 생략).</div>
+        <div className="mf">
+          <button className="btn bs" onClick={close}>취소 (출근 안 함)</button>
+          <button className="btn bp" onClick={save}>출근 완료</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CashOutModal({ modal, data, persist, close, toast }) {
   const sh = modal.shift;
   const isOpening = sh.slotType === "오프닝";
   const [cash, setCash] = useState(sh.cashCount != null ? String(sh.cashCount) : "");
   const [memo, setMemo] = useState(sh.cashMemo || "");
+  const [diffReason, setDiffReason] = useState(sh.cashDiffReason || ""); // 서랍 부족 이유
+
+  // ===== 인정직원 슈킹 자진신고: "오늘 만든 현금(안 찍은 현금)" — sanctioned 직원에게만 노출 =====
+  // 안 찍고 손님 현금을 직접 받은 금액. 서랍을 거치지 않으므로 서랍 기대값 계산과는 완전 무관.
+  // 사진구멍(미설명) 설명과 대사의 인정몫 확정에만 쓰임 (shift.skMade / skMadeMemo).
+  const staffRec = (data.staff||[]).find(s => s.id == modal.staffId);
+  const isSanctioned = !!(staffRec && staffRec.sanctioned);
+  const [skMade, setSkMade] = useState(sh.skMade != null ? String(sh.skMade) : "");
+  const [skMadeMemo, setSkMadeMemo] = useState(sh.skMadeMemo || "");
+  const skMadeNum = (isSanctioned && skMade !== "") ? (parseFloat(skMade) || 0) : null;
   // 무료/할인/재촬영 자가기록
   const [report, setReport] = useState(Array.isArray(sh.report) ? sh.report : []);
   const [rKind, setRKind] = useState("free");
@@ -91,22 +149,51 @@ function CashOutModal({ modal, data, persist, close, toast }) {
         if (!alive) return;
         const sErr = j && j.sumup && j.sumup.error;
         const lErr = j && j.lucent && j.lucent.error;
+        // 오늘 현금매출 전체(전 카테고리, CASH) — 서랍 기대액 계산용. 사진 대조와 별개로 sumup만 살아있으면 사용.
+        const cEur = (j && j.sumup && !sErr && typeof j.sumup.cashEur === "number") ? j.sumup.cashEur : null;
         if (j && j.ok && j.sumup && j.lucent && !sErr && !lErr && typeof j.gap === "number") {
-          setCheck({ loaded: true, sumup: j.sumup, lucent: j.lucent, gap: j.gap });
+          setCheck({ loaded: true, sumup: j.sumup, lucent: j.lucent, gap: j.gap, cashEur: cEur });
         } else {
-          setCheck({ error: true });
+          setCheck({ error: true, cashEur: cEur });
         }
       })
       .catch(() => { if (alive) setCheck({ error: true }); });
     return () => { alive = false; };
   }, []);
-  // 리포트로 설명된 금액 → 미설명 = gap − 설명 (실시간)
+  // 리포트 + 슈킹 신고(skMade)로 설명된 금액 → 미설명 = gap − 설명 (실시간)
   const reportExplained = report.reduce((a, r) => a + Math.max((Number(r.full)||0) - (Number(r.paid)||0), 0), 0);
   const gap = (check && check.loaded) ? check.gap : null;
-  const unexplained = gap != null ? (gap - reportExplained) : null;
+  const unexplained = gap != null ? (gap - reportExplained - (skMadeNum || 0)) : null;
   const cState = check == null ? "loading" : check.error ? "error"
     : (unexplained >= 5 ? "red" : unexplained >= 1 ? "orange" : "green");
   const cColor = cState === "red" ? "#e03131" : cState === "orange" ? "#e8590c" : cState === "green" ? "#2f9e44" : "#888";
+
+  // ===== 서랍 현금 실시간 비교 (기대 서랍액 vs 지금 센 금액) =====
+  // 오프닝 퇴근: 기대 = 시작시재(floatStart) + 오늘 현금매출(cashEur 지금)
+  // 클로징 퇴근: 기대 = 오프닝 인계(cashCount) + (cashEur 지금 − 오프닝 퇴근 시점 cashEur 스냅샷)
+  // 계산 불가(API 실패·시재/인계 없음)면 조용히 생략 — 퇴근은 막지 않는다.
+  const r2c = n => Math.round(n * 100) / 100;
+  const cashEurNow = (check && typeof check.cashEur === "number") ? check.cashEur : null;
+  let drawerExpected = null, drawerBasis = "";
+  if (cashEurNow != null) {
+    if (isOpening) {
+      if (sh.floatStart != null) {
+        drawerExpected = r2c(Number(sh.floatStart) + cashEurNow);
+        drawerBasis = `시작 시재 €${fmtE(sh.floatStart)} + 오늘 현금매출 €${fmtE(cashEurNow)}`;
+      }
+    } else {
+      const openSh = (data.shifts||[]).find(x => x.date === sh.date && x.slotType === "오프닝" && x.cashCount != null && typeof x.checkCashEur === "number");
+      if (openSh) {
+        const later = r2c(cashEurNow - openSh.checkCashEur);
+        drawerExpected = r2c(Number(openSh.cashCount) + later);
+        drawerBasis = `오프닝 인계 €${fmtE(openSh.cashCount)} + 이후 현금매출 €${fmtE(later)}`;
+      }
+    }
+  }
+  const cashNum = cash === "" ? null : (parseFloat(cash) || 0);
+  const drawerDiff = (drawerExpected != null && cashNum != null) ? r2c(cashNum - drawerExpected) : null;
+  const dState = drawerDiff == null ? null : (drawerDiff <= -2 ? "short" : (drawerDiff >= 2 ? "over" : "ok"));
+  const DIFF_REASONS = ["거스름돈 실수", "사장님·인정직원 인출", "모름"];
 
   const save = async () => {
     const amt = cash === "" ? null : (parseFloat(cash) || 0);
@@ -117,6 +204,17 @@ function CashOutModal({ modal, data, persist, close, toast }) {
       updated.checkConfirmed = !!checkConfirmed;
       updated.checkLucentEur = check.lucent.eur;
       updated.checkSumupEur = check.sumup.eur;
+    }
+    // 퇴근 시점 현금매출 스냅샷 + 서랍 차이 (계산 가능할 때만)
+    if (cashEurNow != null) updated.checkCashEur = cashEurNow;
+    if (drawerDiff != null) {
+      updated.cashDiff = drawerDiff;
+      updated.cashDiffReason = dState === "short" ? (diffReason || "") : "";
+    }
+    // 인정직원 슈킹 자진신고 (오늘 만든 현금 — 안 찍은 현금)
+    if (isSanctioned) {
+      updated.skMade = skMadeNum;
+      updated.skMadeMemo = skMadeNum != null ? (skMadeMemo || "").trim() : "";
     }
     const newShifts = (data.shifts||[]).map(x => x.id === sh.id ? updated : x);
     await persist({ ...data, shifts: newShifts });
@@ -157,7 +255,7 @@ function CashOutModal({ modal, data, persist, close, toast }) {
             </div>
             <div style={{fontSize:11,color:"#555",marginBottom:unexplained>=1?6:0}}>
               루센트 €{fmtE(check.lucent.eur)} ({check.lucent.count}건) vs 결제 €{fmtE(check.sumup.eur)} ({check.sumup.count}건)
-              {reportExplained>0 ? ` · 기록설명 €${fmtE(reportExplained)}` : ""}
+              {reportExplained>0 ? ` · 기록설명 €${fmtE(reportExplained)}` : ""}{skMadeNum>0 ? ` · 슈킹신고 €${fmtE(skMadeNum)}` : ""}
             </div>
             {unexplained >= 1 ? (
               <>
@@ -181,6 +279,46 @@ function CashOutModal({ modal, data, persist, close, toast }) {
             <input type="number" inputMode="decimal" autoFocus value={cash} onChange={e=>setCash(e.target.value)} placeholder="지금 센 금액" />
           </div>
         </div>
+
+        {/* 서랍 실시간 비교: 입력 즉시 기대액과 대조 */}
+        {drawerDiff != null ? (
+          dState === "short" ? (
+            <div style={{border:"1.5px solid #e03131",background:"rgba(255,107,107,.06)",borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#e03131",marginBottom:3}}>
+                🔴 기대 €{fmtE(drawerExpected)} vs 센 금액 €{fmtE(cashNum)} — €{fmtE(-drawerDiff)} 부족해요. 이유를 알려주세요
+              </div>
+              <div style={{fontSize:10,color:"#888",marginBottom:8}}>기대 = {drawerBasis}</div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {DIFF_REASONS.map(r => (
+                  <button key={r} onClick={()=>setDiffReason(diffReason === r ? "" : r)}
+                    style={{padding:"4px 10px",borderRadius:12,fontSize:11,cursor:"pointer",
+                      border: diffReason===r ? "1px solid #e03131" : "1px solid #ddd",
+                      background: diffReason===r ? "rgba(255,107,107,.12)" : "#fff",
+                      color: diffReason===r ? "#e03131" : "#666", fontWeight: diffReason===r ? 700 : 400}}>
+                    {diffReason===r ? "✓ " : ""}{r}
+                  </button>
+                ))}
+              </div>
+              <div style={{fontSize:10,color:"#888",marginTop:6}}>자세한 상황은 아래 메모에 적어주세요.</div>
+            </div>
+          ) : dState === "over" ? (
+            <div style={{border:"1.5px solid #e8590c",background:"rgba(232,89,12,.06)",borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#e8590c",marginBottom:3}}>
+                🟠 기대 €{fmtE(drawerExpected)}보다 €{fmtE(drawerDiff)} 많아요
+              </div>
+              <div style={{fontSize:10,color:"#888"}}>미기입 현금이 서랍에 있을 수 있어요 (기대 = {drawerBasis}).</div>
+            </div>
+          ) : (
+            <div style={{border:"1.5px solid #2f9e44",background:"rgba(47,158,68,.06)",borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#2f9e44"}}>🟢 서랍 맞아요 (기대 €{fmtE(drawerExpected)})</div>
+            </div>
+          )
+        ) : (isOpening && cashEurNow != null && sh.floatStart == null ? (
+          <div style={{fontSize:10,color:"#888",background:"#f5f5f7",borderRadius:8,padding:8,marginBottom:10}}>
+            ℹ️ 시작 시재가 입력 안 돼 서랍 비교는 생략해요. 다음 출근 때 시재를 입력하면 자동으로 비교해줘요.
+          </div>
+        ) : null)}
+
         <div className="fr">
           <div>
             <label>메모 (선택)</label>
@@ -188,6 +326,20 @@ function CashOutModal({ modal, data, persist, close, toast }) {
           </div>
         </div>
         <div style={{fontSize:10,color:"#aaa",marginBottom:12}}>* 금액 없이 완료해도 퇴근은 처리돼요. (관리자 대사에서 확인)</div>
+
+        {/* 인정직원 슈킹 자진신고 — 오늘 만든 현금(안 찍은 현금). 서랍과 무관. */}
+        {isSanctioned ? (
+          <div style={{borderTop:"1px solid #eee",paddingTop:10,marginBottom:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#1971c2",marginBottom:2}}>🔒 오늘 만든 현금(안 찍은 현금) € (선택)</div>
+            <div style={{fontSize:10,color:"#888",marginBottom:8}}>
+              SumUp에 안 찍고 손님 현금으로 직접 받은 금액을 기록하세요. 서랍 계산과는 무관하고, 사장님 대사에서 인정몫으로 잡혀요.
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+              <input type="number" inputMode="decimal" value={skMade} onChange={e=>setSkMade(e.target.value)} placeholder="오늘 만든 €" style={{width:100}} />
+              <input type="text" value={skMadeMemo} onChange={e=>setSkMadeMemo(e.target.value)} placeholder="메모(선택)" style={{width:150}} />
+            </div>
+          </div>
+        ) : null}
 
         {/* 무료/할인/재촬영 자가기록 */}
         <div style={{borderTop:"1px solid #eee",paddingTop:10}}>
@@ -232,4 +384,4 @@ function CashOutModal({ modal, data, persist, close, toast }) {
   );
 }
 
-export { AddSalesModal, CashOutModal };
+export { AddSalesModal, CashInModal, CashOutModal };

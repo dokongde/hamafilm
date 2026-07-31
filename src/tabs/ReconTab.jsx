@@ -84,8 +84,14 @@ function ReconTab({ data, persist }) {
   const closes = (kd && Array.isArray(kd.closes)) ? kd.closes : [];
 
   // ===== 인계 사슬: 직원이 퇴근 시 입력한 서랍 현금(cashCount) =====
-  const openCounts = dayShifts.filter(s => s.slotType === "오프닝" && s.cashCount != null).map(s => ({ name: staffName(s.staffId), cash: Number(s.cashCount)||0, memo: s.cashMemo || "" }));
-  const closeCounts = dayShifts.filter(s => s.slotType === "클로징" && s.cashCount != null).map(s => ({ name: staffName(s.staffId), cash: Number(s.cashCount)||0, memo: s.cashMemo || "" }));
+  const mapCount = s => ({
+    name: staffName(s.staffId), cash: Number(s.cashCount)||0, memo: s.cashMemo || "",
+    diff: s.cashDiff != null ? Number(s.cashDiff) : null,          // 퇴근 시 실시간 서랍 비교 (입력 − 기대)
+    reason: s.cashDiffReason || "",                                 // 부족 이유 (직원 선택)
+    floatStart: s.floatStart != null ? Number(s.floatStart) : null  // 오프닝 시작 시재
+  });
+  const openCounts = dayShifts.filter(s => s.slotType === "오프닝" && s.cashCount != null).map(mapCount);
+  const closeCounts = dayShifts.filter(s => s.slotType === "클로징" && s.cashCount != null).map(mapCount);
   const hasChain = openCounts.length > 0 || closeCounts.length > 0;
   const empClose = closeCounts.length ? closeCounts.reduce((a, c) => a + c.cash, 0) : null;
   const empOpen = openCounts.length ? openCounts.reduce((a, c) => a + c.cash, 0) : null;
@@ -119,6 +125,10 @@ function ReconTab({ data, persist }) {
   const reportList = Object.values(reportByStaff);
   const checkShifts = dayShifts.filter(s => s.checkGap != null); // 퇴근 시 실시간 대조 스냅샷
   const reportExplainedTotal = reportList.reduce((a, r) => a + r.explained, 0);
+  // 인정직원 슈킹 자진신고 ("오늘 만든 현금") — 표시용 목록. rec(sales 레코드) 없는 날도 시프트에서 직접 집계.
+  const skReports = dayShifts.filter(s => s.skMade != null && Number(s.skMade) > 0)
+    .map(s => ({ name: staffName(s.staffId), v: Number(s.skMade)||0, memo: s.skMadeMemo || "" }));
+  const skReportedTotal = skReports.reduce((a, r) => a + r.v, 0);
 
   // ===== 나약스(사진기계 카드결제) 초과 = max(0, nx − mk) — 기계꺼짐 재촬영이 나약스로 결제됨 =====
   const nx = rec && rec.nx != null ? (Number(rec.nx)||0) : null;
@@ -206,13 +216,19 @@ function ReconTab({ data, persist }) {
               sub={`리포트 €${fmtE(reportExplainedTotal)}${admSum>0?` + 관리자 €${fmtE(admSum)}`:""}${naaxOverflow>0?` + 나약스 €${fmtE(naaxOverflow)}`:""}${markedUnSum>0?` + 과거마킹 €${fmtE(markedUnSum)}`:""}`}
               color="#2f9e44" />
             <Row indent label="❓ 미설명 — 오늘 확인할 것" main={`€${fmtE(unexplained)}`}
-              sub={unexplained>0 ? <><span style={{color:"#e03131",fontWeight:700}}>누락 €{fmtE(gap.nurak)}</span> · 인정 €{fmtE(gap.sukking)}</> : null}
+              sub={unexplained>0 ? <><span style={{color:"#e03131",fontWeight:700}}>누락 €{fmtE(gap.nurak)}</span> · 인정{gap.skMade>0?"(신고)":""} €{fmtE(gap.sukking)}</> : null}
               color={gap.nurak>5?"#e03131":(gap.nurak>1?"#e8590c":"#2f9e44")} strong />
           </>
         ) : (
           <Row label="사진 구멍" main="야간 집계 대기" color="#999"
             sub={(reportExplainedTotal>0||naaxOverflow>0||admSum>0) ? `오늘 설명 입력 €${fmtE(reportExplainedTotal+naaxOverflow+admSum)}` : null} />
         )}
+
+        {skReportedTotal > 0 ? (
+          <Row indent label="🔒 슈킹 신고 (인정직원)" main={`€${fmtE(skReportedTotal)}`}
+            sub={`${skReports.map(r=>`${r.name} €${fmtE(r.v)}`).join(" · ")}${rc ? ` · 신고 €${fmtE(skReportedTotal)} vs 추정 €${fmtE(gap.sukkingEst)}${Math.abs(skReportedTotal-gap.sukkingEst)>=5 ? " — 차이 확인" : ""}` : ""}`}
+            color={rc && Math.abs(skReportedTotal - gap.sukkingEst) >= 5 ? "#e8590c" : "#1971c2"} />
+        ) : null}
 
         <Row label="서랍(카세북)"
           main={kdDiff != null ? `${kdDiff<0?"−":"+"}€${fmtE(Math.abs(kdDiff))}` : "카세북 대기"}
@@ -345,6 +361,15 @@ function ReconTab({ data, persist }) {
                 🔌 나약스 결제(기계꺼짐 재촬영) <strong>€{fmtE(naaxOverflow)}</strong> — 사진 구멍 아님 (나약스 €{fmtE(nx)} − 루센트 기계카드 €{fmtE(mkVal)})
               </div>
             ) : null}
+            {skReports.length ? (
+              <div style={{fontSize:11,color:"#1971c2",marginBottom:6,padding:"6px 8px",background:"rgba(77,171,247,.08)",borderRadius:6}}>
+                🔒 슈킹 신고(오늘 만든 현금) <strong>€{fmtE(skReportedTotal)}</strong>
+                {rc ? <> — 신고 €{fmtE(skReportedTotal)} vs 추정 €{fmtE(gap.sukkingEst)}{Math.abs(skReportedTotal-gap.sukkingEst)>=5 ? <span style={{color:"#e8590c",fontWeight:700}}> 🟠 차이 확인</span> : null}</> : null}
+                {skReports.map((r, i) => (
+                  <div key={i} style={{fontSize:10,color:"#555",paddingLeft:10,marginTop:2}}>{r.name} €{fmtE(r.v)}{r.memo ? ` · ${r.memo}` : ""}</div>
+                ))}
+              </div>
+            ) : null}
             {markedUnSum > 0 ? (
               <div style={{fontSize:10,color:"#888",marginBottom:6}}>🎁 과거 프리샷 마킹 €{fmtE(markedUnSum)} 설명에 포함 (과거 호환 — 새 기록은 리포트로)</div>
             ) : null}
@@ -404,7 +429,13 @@ function ReconTab({ data, persist }) {
                     <span className="badge bylw" style={{marginRight:6}}>오프닝 인계</span>
                     {openCounts.length ? openCounts.map((c,i)=>(
                       <span key={i} style={{marginRight:8}}>
+                        {c.floatStart != null ? <span style={{fontSize:10,color:"#888"}}>시재 €{fmtE(c.floatStart)} → </span> : null}
                         <strong className="mn">€{fmtE(c.cash)}</strong> <span style={{fontSize:11,color:"#888"}}>({c.name}{c.memo?` · ${c.memo}`:""})</span>
+                        {c.diff != null ? (
+                          c.diff <= -2 ? <span style={{fontSize:11,fontWeight:700,color:"#e03131"}}> −€{fmtE(-c.diff)} 부족{c.reason?` (${c.reason})`:""}</span>
+                          : c.diff >= 2 ? <span style={{fontSize:11,fontWeight:700,color:"#e8590c"}}> +€{fmtE(c.diff)} 초과</span>
+                          : <span style={{fontSize:11,color:"#2f9e44"}}> ✓맞음</span>
+                        ) : null}
                       </span>
                     )) : <span style={{fontSize:11,color:"#aaa"}}>미입력</span>}
                   </div>
@@ -414,6 +445,11 @@ function ReconTab({ data, persist }) {
                     {closeCounts.length ? closeCounts.map((c,i)=>(
                       <span key={i} style={{marginRight:8}}>
                         <strong className="mn">€{fmtE(c.cash)}</strong> <span style={{fontSize:11,color:"#888"}}>({c.name}{c.memo?` · ${c.memo}`:""})</span>
+                        {c.diff != null ? (
+                          c.diff <= -2 ? <span style={{fontSize:11,fontWeight:700,color:"#e03131"}}> −€{fmtE(-c.diff)} 부족{c.reason?` (${c.reason})`:""}</span>
+                          : c.diff >= 2 ? <span style={{fontSize:11,fontWeight:700,color:"#e8590c"}}> +€{fmtE(c.diff)} 초과</span>
+                          : <span style={{fontSize:11,color:"#2f9e44"}}> ✓맞음</span>
+                        ) : null}
                       </span>
                     )) : <span style={{fontSize:11,color:"#aaa"}}>미입력</span>}
                   </div>

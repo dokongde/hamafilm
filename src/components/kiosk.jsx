@@ -106,6 +106,11 @@ function KioskView({ data, persist, setModal, toast, onExit }) {
 
   const doCheckIn = async (s) => {
     const time = nowHM();
+    if (s.slotType === "오프닝") {
+      // 오프닝은 시작 시재(floatStart) 입력 모달로 (cashIn 모달이 최종 persist + 출근 푸시 처리)
+      setModal({ type:"cashIn", shift:{...s, actualStart:time}, staffId: selId, staffName: sel?.name||"", inTime: time, planned: s.start });
+      return;
+    }
     await persist({ ...data, shifts: (data.shifts||[]).map(x => x.id===s.id ? {...x, actualStart:time} : x) });
     toast(`✅ 출근 완료 (${time})`);
     notifyClock(sel?.name||"", "in", time, s.start);
@@ -191,7 +196,7 @@ function KioskView({ data, persist, setModal, toast, onExit }) {
                 );
               })}
             </div>
-            <div style={{fontSize:10,color:"#aaa",textAlign:"center",marginTop:12}}>퇴근 시 서랍 현금 총액을 입력합니다 (오프닝=인계 / 클로징=마감).</div>
+            <div style={{fontSize:10,color:"#aaa",textAlign:"center",marginTop:12}}>오프닝 출근 시 시작 시재, 퇴근 시 서랍 현금 총액을 입력합니다 (오프닝=인계 / 클로징=마감).</div>
           </div>
         )}
       </div>

@@ -2,7 +2,7 @@ import { hessenHols, dowKo, todayStr, fmtE, shiftHours, timeDiff, needsAttention
 import { saveSession, notifyLoginEvent } from "../data/gas";
 import { EditShiftModal, AddShiftModal, AddFixedModal, AddVacModal, GenFixedModal } from "../components/modals/shift";
 import { AddStaffModal } from "../components/modals/staff";
-import { AddSalesModal, CashOutModal } from "../components/modals/sales";
+import { AddSalesModal, CashInModal, CashOutModal } from "../components/modals/sales";
 import { AddPayrollModal, EditPaymentModal, ExpenseModal, HistoricalModal } from "../components/modals/payroll";
 import { ChecklistRunModal, ChecklistManageModal } from "../components/modals/checklist";
 import { ManualSettingsModal, CsvImportModal } from "../components/modals/settings";
@@ -178,6 +178,7 @@ function ModalHost({ closeModal, data, doPinInput, gSt, isVac, lockKiosk, modal,
     if (modal.type === "addVac") return <AddVacModal data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "addStaff") return <AddStaffModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "addSales") return <AddSalesModal data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "cashIn") return <CashInModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "cashOut") return <CashOutModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "kioskGate") return <KioskGateModal modal={modal} data={data} close={closeModal} onSuccess={modal.intent === "lock" ? lockKiosk : unlockKiosk} toast={showToast} />;
     if (modal.type === "genFixed") return <GenFixedModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} isVac={isVac} />;
