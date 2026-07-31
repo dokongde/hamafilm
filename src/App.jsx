@@ -4615,6 +4615,10 @@ export default function App() {
   const [kioskLocked, setKioskLocked] = useState(() => { try { return localStorage.getItem("hama_kiosk") === "1"; } catch(e) { return false; } });
   const lockKiosk = () => { try { localStorage.setItem("hama_kiosk", "1"); } catch(e) {} setKioskLocked(true); };
   const unlockKiosk = () => { try { localStorage.removeItem("hama_kiosk"); } catch(e) {} setKioskLocked(false); };
+  // 관리자 전용 기기 고정 — 이 기기는 직원 세션 자동로그인 무시하고 항상 관리자 PIN로 (기기별 localStorage)
+  const [adminDevice, setAdminDevice] = useState(() => { try { return localStorage.getItem("hama_admin_device") === "1"; } catch(e) { return false; } });
+  const enableAdminDevice = () => { try { localStorage.setItem("hama_admin_device", "1"); } catch(e) {} clearSession(); setSvSid(null); setSvSel(null); setAdminDevice(true); };
+  const disableAdminDevice = () => { try { localStorage.removeItem("hama_admin_device"); } catch(e) {} setAdminDevice(false); };
 
   // data가 바뀔 때마다 vacations를 전역 변수에 동기화 (getSlots에서 사용)
   useEffect(() => {
@@ -4630,31 +4634,47 @@ export default function App() {
       setStorageMode(STORAGE_MODE);
       setLastError(LAST_ERROR);
 
-      // 저장된 직원 세션 자동 복원 (로그인 유지) — 알림은 보내지 않음
-      try {
-        const sess = loadSession();
-        if (sess) {
-          const staffList = (d || DEFAULT_DATA).staff || [];
-          if (staffList.some(s => s.id === sess.staffId)) {
-            setSvSid(sess.staffId);
-            setSvDate(todayStr());
-            setSvSel(null);
-          } else {
-            clearSession(); // 삭제된 직원 등 — 세션 무효화
+      // 관리자 전용 기기 플래그 확인 (이 기기는 직원 세션 무시 → 관리자 PIN)
+      let adminDeviceFlag = false;
+      try { adminDeviceFlag = localStorage.getItem("hama_admin_device") === "1"; } catch(e) {}
+
+      if (adminDeviceFlag) {
+        // 직원 자동로그인 안 함 — 혹시 남은 세션도 정리
+        clearSession();
+      } else {
+        // 저장된 직원 세션 자동 복원 (로그인 유지) — 알림은 보내지 않음
+        try {
+          const sess = loadSession();
+          if (sess) {
+            const staffList = (d || DEFAULT_DATA).staff || [];
+            if (staffList.some(s => s.id === sess.staffId)) {
+              setSvSid(sess.staffId);
+              setSvDate(todayStr());
+              setSvSel(null);
+            } else {
+              clearSession(); // 삭제된 직원 등 — 세션 무효화
+            }
           }
-        }
-      } catch (e) {}
+        } catch (e) {}
+      }
 
       // URL ?admin=PIN 으로 관리자 직접 진입
+      let enteredAdminByUrl = false;
       try {
         const params = new URLSearchParams(window.location.search);
         const adminPin = params.get("admin");
         if (adminPin && adminPin === p) {
           setMode("admin");
+          enteredAdminByUrl = true;
           // URL에서 PIN 제거 (보안 - 화면에 안 보이게)
           window.history.replaceState({}, "", window.location.pathname);
         }
       } catch(e) {}
+
+      // 관리자 전용 기기면 곧장 관리자 PIN 화면 (URL로 이미 진입했으면 생략)
+      if (adminDeviceFlag && !enteredAdminByUrl) {
+        setModal({ type: "pin" });
+      }
     })();
   }, []);
 
@@ -5354,6 +5374,23 @@ export default function App() {
         <div className="ct" style={{color:"#1971c2"}}>🏪 매장 기기(출퇴근 kiosk) 코드</div>
         <KioskCodeSetting data={data} persist={persist} toast={showToast} />
       </div>
+
+      <div className="card" style={{marginTop:12,border:"1px solid rgba(121,80,242,.3)"}}>
+        <div className="ct" style={{color:"#7950f2"}}>📱 관리자 전용 기기 고정</div>
+        <div style={{fontSize:11,color:"#888",marginBottom:8,lineHeight:1.5}}>
+          켜면 <strong>이 기기</strong>는 앱을 열 때마다 직원 자동로그인을 무시하고 <strong>항상 관리자 PIN 화면</strong>으로 뜹니다. (사장님 폰용 — 기기별 설정, 다른 기기엔 영향 없음)
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {adminDevice ? (
+            <>
+              <span style={{fontSize:12,fontWeight:700,color:"#7950f2"}}>✓ 이 기기 = 관리자 전용</span>
+              <button className="btn bs sm" onClick={disableAdminDevice}>해제</button>
+            </>
+          ) : (
+            <button className="btn bp sm" onClick={enableAdminDevice}>이 기기를 관리자 전용으로 고정</button>
+          )}
+        </div>
+      </div>
     </div>
   );
 
@@ -5473,7 +5510,14 @@ export default function App() {
           </div>
         </div>
         <div className="pg">
-          {!svSid ? (
+          {!svSid && adminDevice ? (
+            <div style={{textAlign:"center",padding:"48px 16px"}}>
+              <div style={{fontSize:34,marginBottom:10}}>🔐</div>
+              <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>관리자 전용 기기</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:18}}>이 기기는 관리자 전용으로 고정되어 있어요.<br/>관리자 PIN을 입력하세요.</div>
+              <button className="btn bp" onClick={()=>setModal({type:"pin"})}>🔐 관리자 PIN 입력</button>
+            </div>
+          ) : !svSid ? (
             <div>
               <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>안녕하세요 👋</div>
               <div style={{fontSize:12,color:"#888",marginBottom:14}}>이름을 선택하세요.</div>
