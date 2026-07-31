@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { curYM, fmtE, fmt, calcMonthData } from "../lib/utils";
+import { curYM, fmtE, fmt } from "../lib/utils";
+import { calcMonthData } from "../lib/recon"; // 매출·순수익은 누락(비인정 구멍) 제외
 
 function StatsTab({ data, setModal, persist }) {
   const [view, setView] = useState("dashboard"); // "dashboard" | "details" | "expenses"
@@ -142,11 +143,20 @@ function StatsTab({ data, setModal, persist }) {
             </div>
           </div>
 
+          {/* 누락 경고 — 비인정 직원 구멍 = 매출 아님 */}
+          {cur.nurak > 0 ? (
+            <div className="card" style={{marginBottom:12,border:"1px solid #e03131",background:"rgba(255,107,107,.06)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{color:"#e03131",fontWeight:800,fontSize:13}}>❗ 이번달 누락 €{fmtE(cur.nurak)}</span>
+              <span style={{fontSize:11,color:"#888"}}>매출 아님 · 확인 필요 — 매출·순수익에서 제외됨 (대사 탭에서 날짜별 확인)</span>
+            </div>
+          ) : null}
+
           {/* 핵심 KPI */}
           <div className="g3" style={{marginBottom:12}}>
             <div className="chip" style={{border:"1.5px solid #4dabf7"}}>
               <div className="lb">📈 매출 {cur.isHistorical ? "(과거)" : ""}</div>
               <div className="vl" style={{color:"#1971c2"}}>€{fmtE(cur.sales)}</div>
+              {cur.nurak > 0 ? <div style={{fontSize:10,color:"#e03131"}}>누락 €{fmtE(cur.nurak)} 제외</div> : null}
               <div>{renderCompare(cur.sales, prev.sales, prevYear.sales, false)}</div>
             </div>
             <div className="chip" style={{border:"1.5px solid #e63946"}}>
@@ -356,8 +366,10 @@ function StatsTab({ data, setModal, persist }) {
           const acc = sv("ac")+sv("ak");
           const nail = sv("nc")+sv("nk");
           const joys = sv("jc")+sv("jk");
-          const sk = sv("sk");
-          const photoStudio = sumup + machine + sk; // 진짜 사진관 매출
+          const skRaw = sv("sk");
+          const nurak = cur.nurak || 0; // 비인정 직원 구멍 = 매출 아님
+          const sk = skRaw - nurak; // 슈킹 = sk − 누락 (인정몫+설명됨)
+          const photoStudio = sumup + machine + sk; // 진짜 사진관 매출 (누락 제외)
           const vatable = sumup + machine + acc + nail + joys; // 부가세 대상 (슈킹 제외)
           const all = vatable + sk;
           const vat = vatable * 0.19;
@@ -374,8 +386,9 @@ function StatsTab({ data, setModal, persist }) {
             {n:"💅 네일 카드", v:sv("nk"), c:"#ff4757"},
             {n:"💎 조이스 현금", v:sv("jc"), c:"#5352ed"},
             {n:"💎 조이스 카드", v:sv("jk"), c:"#5352ed"},
-            {n:"🔒 슈킹", v:sv("sk"), c:"#888"}
+            {n:"🔒 슈킹", v:sk, c:"#888"}
           ];
+          if (nurak > 0) cats.push({n:"❗ 누락 (매출 아님)", v:nurak, c:"#e03131"});
           const mx = Math.max(...cats.map(c => c.v), 1);
 
           return (
@@ -392,7 +405,11 @@ function StatsTab({ data, setModal, persist }) {
                 <div className="g3">
                   <div className="chip"><div className="lb">💳 SUMUP</div><div className="vl">{fmt(sumup)}</div></div>
                   <div className="chip"><div className="lb">🖨 기계</div><div className="vl">{fmt(machine)}</div></div>
-                  <div className="chip"><div className="lb">🔒 슈킹</div><div className="vl" style={{color:"#888"}}>{fmt(sk)}</div></div>
+                  <div className="chip">
+                    <div className="lb">🔒 슈킹</div>
+                    <div className="vl" style={{color:"#888"}}>{fmt(sk)}</div>
+                    {nurak > 0 ? <div className="sb" style={{color:"#e03131"}}>누락 €{fmtE(nurak)} 제외</div> : null}
+                  </div>
                 </div>
                 <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #e0e0e0",display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700}}>
                   <span>사진관 매출 합계</span>

@@ -117,64 +117,7 @@ const REPORT_KINDS = [
 const reportKindLabel = (k) => (REPORT_KINDS.find(x => x.k === k) || { label: k }).label;
 
 
-// 월별 종합 데이터 계산 (매출/비용/인건비/순수익)
-function calcMonthData(data, ym) {
-  // 1. 과거 직접 입력 데이터 우선
-  const historical = (data.historicalData||[]).find(h => h.ym === ym);
-  if (historical) {
-    return {
-      ym,
-      sales: historical.sales || 0,
-      expenses: historical.expenses || 0,
-      labor: historical.labor || 0,
-      vat: 0, // 과거 데이터는 비용에 이미 포함된 것으로 간주
-      net: (historical.sales || 0) - (historical.expenses || 0),
-      isHistorical: true
-    };
-  }
-
-  // 2. 현재 시스템 데이터로 계산
-  // 매출 (슈킹 포함 = 내부 전체 매출)
-  const monthSales = (data.sales||[]).filter(s => s.date.startsWith(ym));
-  const sv = k => monthSales.reduce((t, r) => t + (r[k]||0), 0);
-  const skuking = sv("sk");
-  const reportable = sv("pc")+sv("pk")+sv("mc")+sv("mk")+sv("ac")+sv("ak")+sv("nc")+sv("nk")+sv("jc")+sv("jk"); // 슈킹 제외
-  const totalSales = reportable + skuking;
-
-  // 부가세: 슈킹 제외 신고 매출의 19%
-  const vat = reportable * 0.19;
-
-  // 인건비 (해당월 모든 직원 시급 × 시간)
-  let labor = 0;
-  const monthShifts = (data.shifts||[]).filter(s => s.date.startsWith(ym));
-  monthShifts.forEach(sh => {
-    const st = (data.staff||[]).find(s => s.id == sh.staffId);
-    if (!st) return;
-    const h = sh.hours || (getSlots(sh.date).find(x => x.type === sh.slotType) || {hours:0}).hours;
-    labor += h * st.wage;
-  });
-
-  // 일반 지출 (해당월)
-  const monthExpenses = (data.expenses||[])
-    .filter(x => x.date.startsWith(ym))
-    .reduce((t, x) => t + (x.amount || 0), 0);
-
-  const totalExpenses = monthExpenses + labor + vat;
-  const net = totalSales - totalExpenses;
-
-  return {
-    ym,
-    sales: totalSales,
-    reportableSales: reportable,
-    skuking,
-    expenses: totalExpenses,
-    expensesNoLabor: monthExpenses,
-    labor,
-    vat,
-    net,
-    isHistorical: false
-  };
-}
+// ※ calcMonthData는 src/lib/recon.js로 이동 (누락 귀속 attributeGap 필요 + 순환 import 방지)
 
 // 월 리스트 생성 (시작월 ~ 종료월)
 function getMonthRange(startYM, endYM) {
@@ -191,4 +134,4 @@ function getMonthRange(startYM, endYM) {
 
 function setCurrentVacations(v) { CURRENT_VACATIONS = v || []; }
 
-export { easter, addD, dstr, hessenHols, DOW_KO, isInVacation, setCurrentVacations, getSlots, dowKo, todayStr, curYM, nextYM, prevYM, getCarryIn, fmtE, fmt, nid, shiftHours, actualMinutes, timeDiff, needsAttention, REPORT_KINDS, reportKindLabel, calcMonthData, getMonthRange };
+export { easter, addD, dstr, hessenHols, DOW_KO, isInVacation, setCurrentVacations, getSlots, dowKo, todayStr, curYM, nextYM, prevYM, getCarryIn, fmtE, fmt, nid, shiftHours, actualMinutes, timeDiff, needsAttention, REPORT_KINDS, reportKindLabel, getMonthRange };

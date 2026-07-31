@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { curYM, fmtE, fmt, nid } from "../lib/utils";
+import { attributeGap } from "../lib/recon";
 
 function SalesTab({ data, persist, setModal }) {
   const [salesYM, setSalesYM] = useState(curYM()); // 월별 필터
@@ -15,6 +16,11 @@ function SalesTab({ data, persist, setModal }) {
   const tot = Object.values(T).reduce((a, b) => a + b, 0);
   const rT = r => (r.pc||0)+(r.pk||0)+(r.mc||0)+(r.mk||0)+(r.ac||0)+(r.ak||0)+(r.nc||0)+(r.nk||0)+(r.jc||0)+(r.jk||0)+(r.sk||0);
   const cell = v => v ? <span>{fmt(v)}</span> : <span style={{color:"#bbb"}}>-</span>;
+
+  // 누락 (파생값, 읽기전용): 비인정 직원만의 사진구멍 = 매출 아님
+  const gapByDate = {};
+  sales.forEach(r => { gapByDate[r.date] = attributeGap(data, r); });
+  const nurakT = Math.round(sales.reduce((a, r) => a + (gapByDate[r.date]?.nurak || 0), 0) * 100) / 100;
 
   // 슈킹 빠른 입력 저장
   const saveSkuking = async (date, value) => {
@@ -59,8 +65,8 @@ function SalesTab({ data, persist, setModal }) {
       <div className="g4" style={{marginBottom:12}}>
         <div className="chip">
           <div className="lb">📷 사진관 매출</div>
-          <div className="vl">{fmt(T.pc+T.pk+T.mc+T.mk+T.sk)}</div>
-          <div className="sb">SUMUP+기계+슈킹</div>
+          <div className="vl">{fmt(T.pc+T.pk+T.mc+T.mk+T.sk-nurakT)}</div>
+          <div className="sb">SUMUP+기계+슈킹{nurakT>0?" · 누락 제외":""}</div>
         </div>
         <div className="chip">
           <div className="lb">💍 악세서리</div>
@@ -75,7 +81,7 @@ function SalesTab({ data, persist, setModal }) {
           <div className="vl">{fmt(T.jc+T.jk)}</div>
         </div>
       </div>
-      <div className="g3" style={{marginBottom:12}}>
+      <div className="g4" style={{marginBottom:12}}>
         <div className="chip" style={{border:"1px solid #4dabf7"}}>
           <div className="lb">📋 부가세 대상 (슈킹 제외)</div>
           <div className="vl" style={{color:"#1971c2"}}>{fmt(T.pc+T.pk+T.mc+T.mk+T.ac+T.ak+T.nc+T.nk+T.jc+T.jk)}</div>
@@ -83,11 +89,18 @@ function SalesTab({ data, persist, setModal }) {
         </div>
         <div className="chip">
           <div className="lb">🔒 슈킹</div>
-          <div className="vl" style={{color:"#888"}}>{fmt(T.sk)}</div>
+          <div className="vl" style={{color:"#888"}}>{fmt(T.sk-nurakT)}</div>
+          <div className="sb">인정몫+설명됨</div>
+        </div>
+        <div className="chip" style={{border:"1px solid #e03131"}}>
+          <div className="lb" style={{color:"#e03131"}}>❗ 누락</div>
+          <div className="vl" style={{color:"#e03131"}}>{fmt(nurakT)}</div>
+          <div className="sb" style={{color:"#e03131"}}>매출 아님 · 확인 필요</div>
         </div>
         <div className="chip" style={{border:"1px solid #f5c518"}}>
           <div className="lb">전체 (슈킹 포함)</div>
-          <div className="vl">{fmt(tot)}</div>
+          <div className="vl">{fmt(tot-nurakT)}</div>
+          <div className="sb">누락 제외</div>
         </div>
       </div>
       <div className="card" style={{background:"rgba(255,212,0,.08)",border:"1px solid rgba(255,212,0,.4)",marginBottom:10}}>
@@ -104,12 +117,12 @@ function SalesTab({ data, persist, setModal }) {
             <tr>
               <th>날짜</th><th>💳현금</th><th>💳카드</th><th>🖨현금</th><th>🖨카드</th>
               <th>💍현금</th><th>💍카드</th><th>💅현금</th><th>💅카드</th>
-              <th>💎현금</th><th>💎카드</th><th>🔒슈킹</th><th>합계</th><th></th>
+              <th>💎현금</th><th>💎카드</th><th>🔒슈킹</th><th style={{color:"#e03131"}}>누락</th><th>합계</th><th></th>
             </tr>
           </thead>
           <tbody>
             {sales.length === 0 ? (
-              <tr><td colSpan={14} style={{textAlign:"center",color:"#888",padding:16}}>이 달 매출 없음</td></tr>
+              <tr><td colSpan={15} style={{textAlign:"center",color:"#888",padding:16}}>이 달 매출 없음</td></tr>
             ) : (
               sales.map(r => (
                 <tr key={r.id}>
@@ -149,7 +162,10 @@ function SalesTab({ data, persist, setModal }) {
                       />
                     ) : (r.sk ? fmt(r.sk) : <span style={{color:"#aaa"}}>+ 입력</span>)}
                   </td>
-                  <td className="mn" style={{fontWeight:700,color:"#1971c2"}}>{fmt(rT(r))}</td>
+                  <td className="mn" style={{fontSize:11,color:"#e03131",fontWeight:(gapByDate[r.date]?.nurak||0)>0?700:400}}>
+                    {(gapByDate[r.date]?.nurak||0)>0 ? fmt(gapByDate[r.date].nurak) : <span style={{color:"#bbb"}}>-</span>}
+                  </td>
+                  <td className="mn" style={{fontWeight:700,color:"#1971c2"}}>{fmt(rT(r)-(gapByDate[r.date]?.nurak||0))}</td>
                   <td>
                     <button className="btn bd sm" onClick={async()=>{
                       if(!confirm(r.date + " 매출 전체 삭제?")) return;

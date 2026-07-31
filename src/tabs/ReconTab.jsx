@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
-import { dstr, getSlots, dowKo, todayStr, fmtE, nid, reportKindLabel } from "../lib/utils";
+import { dstr, getSlots, dowKo, todayStr, fmtE, nid, reportKindLabel, REPORT_KINDS } from "../lib/utils";
+import { attributeGap } from "../lib/recon";
 
 // ===== 매출 대사 (Reconciliation) — "하루 한 장" =====
 // 하루 카드: 매출 / 사진 구멍(sk = 쿠폰−SumUp사진−상품권) / 설명됨(리포트+나약스+과거마킹) / ❓미설명 / 서랍(kd.diff) / 근무.
 // 상세(접힘): 인정직원·마감표·사진구멍 세션·직원 리포트·인계사슬·메모.
-// 데이터 계약(읽기전용: rc/kd/nx, 이 앱 저장: note/report/cashCount, 레거시 보존: fs/cc)은 그대로 — 표시만 재구성.
+// 데이터 계약(읽기전용: rc/kd/nx, 이 앱 저장: note/report/cashCount/adm, 레거시 보존: fs/cc)은 그대로 — 표시만 재구성.
+// 미설명은 attributeGap(lib/recon.js)으로 누락(비인정 몫=매출 아님)과 인정 몫(슈킹)으로 분해 — 판정은 누락 기준.
 function ReconTab({ data, persist }) {
   // 날짜 기본값: 카세북(kd) 있는 최신 날 → 없으면 rc 최신 날 → 오늘
   const kdDates = (data.sales||[]).filter(s => s.kd).map(s => s.date).sort();
@@ -13,6 +15,7 @@ function ReconTab({ data, persist }) {
     : (rcDates.length ? rcDates[rcDates.length-1] : todayStr());
   const [rcDate, setRcDate] = useState(defaultDate);
   const [noteInput, setNoteInput] = useState(""); // 그날 메모(재촬영·특이사항)
+  const [admForm, setAdmForm] = useState({ kind: "reshoot", full: "", paid: "", note: "" }); // 관리자 사후 설명 입력폼
 
   const rec = (data.sales||[]).find(s => s.date === rcDate);
   const rc = rec && rec.rc ? rec.rc : null;
@@ -122,41 +125,41 @@ function ReconTab({ data, persist }) {
   const mkVal = rec ? (Number(rec.mk)||0) : 0;
   const naaxOverflow = nx != null ? Math.max(0, nx - mkVal) : 0;
 
-  // ===== 사진 구멍 & 미설명 =====
+  // ===== 관리자 사후 설명 (adm) — 사장님이 나중에 확인한 재촬영·무료쿠폰 =====
+  const adm = (rec && Array.isArray(rec.adm)) ? rec.adm : [];
+  const admSum = adm.reduce((a, r) => a + Math.max((Number(r.full)||0) - (Number(r.paid)||0), 0), 0);
+  const addAdm = async () => {
+    const full = parseFloat(admForm.full) || 0;
+    const paid = parseFloat(admForm.paid) || 0;
+    if (full <= 0) { alert("원가(€)를 입력하세요"); return; }
+    await patchRec({ adm: [...adm, { kind: admForm.kind, full, paid, note: admForm.note || "" }] });
+    setAdmForm({ kind: "reshoot", full: "", paid: "", note: "" });
+  };
+  const delAdm = async (idx) => {
+    await patchRec({ adm: adm.filter((_, i) => i !== idx) });
+  };
+
+  // ===== 사진 구멍 & 미설명 — 귀속 계산은 attributeGap으로 일원화 (매출/통계 탭과 동일 값) =====
   // 사진 구멍 = sk (파이썬이 사진 기준 재계산: 쿠폰 − SumUp사진 − 상품권)
   const photoGap = rc && rec ? (Number(rec.sk)||0) : null;
-  // 설명됨 = 직원 리포트 + 나약스초과 (+ 과거 프리샷 마킹 호환)
-  const explainedTotal = reportExplainedTotal + naaxOverflow + markedUnSum;
-  const unexplained = photoGap != null ? (photoGap - explainedTotal) : null; // ← 오늘 확인할 것
-
-  // 인정 직원 몫 제외 (세션 근무자 귀속 기반)
-  const unValByStaff = {};
-  un.forEach(s => {
-    const m = mapSession(s.t);
-    if (m.staffId != null) unValByStaff[m.staffId] = (unValByStaff[m.staffId]||0) + (Number(s.v)||0);
-  });
-  let sanctionedUnexplained = 0;
-  Object.keys(unValByStaff).forEach(id => {
-    if (isSanctioned(Number(id))) {
-      const exp = reportByStaff[id]?.explained || 0;
-      sanctionedUnexplained += Math.max(unValByStaff[id] - exp, 0);
-    }
-  });
-  const suspUnexplained = unexplained != null ? Math.max(unexplained - sanctionedUnexplained, 0) : null;
+  const gap = attributeGap(data, rec || null); // { explained, unexplained, sukking, nurak, ... }
+  const explainedTotal = gap.explained; // 리포트 + 관리자 + 나약스초과 + 과거마킹
+  const unexplained = photoGap != null ? gap.unexplained : null; // ← 오늘 확인할 것
 
   // ===== 매출 =====
   const machineSales = rec ? ((rec.mc||0)+(rec.mk||0)) : 0;
   const counterSales = rec ? ((rec.pc||0)+(rec.pk||0)+(rec.ac||0)+(rec.ak||0)+(rec.nc||0)+(rec.nk||0)+(rec.jc||0)+(rec.jk||0)) : 0;
   const totalSales = machineSales + counterSales;
 
-  // ===== 하루 판정: 미설명>€5 or 서랍부족<−€2 → 🔴 / 소액 이상 → 🟠 / 정상 → ✅ =====
+  // ===== 하루 판정: 누락>€5 or 서랍부족<−€2 → 🔴 / 소액 이상 → 🟠 / 정상 → ✅ =====
+  // 판정 기준은 누락(비인정 몫) — 인정직원 몫(슈킹)만 있으면 ✅
   let day;
   const hasSignal = (unexplained != null) || (kdDiff != null);
   if (!hasSignal) {
     day = { icon:"⏳", label:"데이터 대기", color:"#888", bd:"#ccc", bg:"#fafafa" };
-  } else if ((unexplained != null && unexplained > 5) || (kdDiff != null && kdDiff < -2)) {
+  } else if ((unexplained != null && gap.nurak > 5) || (kdDiff != null && kdDiff < -2)) {
     day = { icon:"🔴", label:"확인 필요", color:"#e03131", bd:"#ff6b6b", bg:"rgba(255,107,107,.05)" };
-  } else if ((unexplained != null && unexplained > 1) || (kdDiff != null && kdDiff < -1)) {
+  } else if ((unexplained != null && gap.nurak > 1) || (kdDiff != null && kdDiff < -1)) {
     day = { icon:"🟠", label:"소액 차이", color:"#e8590c", bd:"#e8590c", bg:"rgba(232,89,12,.05)" };
   } else {
     day = { icon:"✅", label:"정상", color:"#2f9e44", bd:"#2f9e44", bg:"rgba(47,158,68,.05)" };
@@ -200,15 +203,15 @@ function ReconTab({ data, persist }) {
               sub={`쿠폰 €${fmtE(rc.cp_eur||0)} − SumUp사진 €${fmtE(rc.su_eur||0)}`}
               color="#b8860b" />
             <Row indent label="설명됨" main={`€${fmtE(explainedTotal)}`}
-              sub={`리포트 €${fmtE(reportExplainedTotal)}${naaxOverflow>0?` + 나약스 €${fmtE(naaxOverflow)}`:""}${markedUnSum>0?` + 과거마킹 €${fmtE(markedUnSum)}`:""}`}
+              sub={`리포트 €${fmtE(reportExplainedTotal)}${admSum>0?` + 관리자 €${fmtE(admSum)}`:""}${naaxOverflow>0?` + 나약스 €${fmtE(naaxOverflow)}`:""}${markedUnSum>0?` + 과거마킹 €${fmtE(markedUnSum)}`:""}`}
               color="#2f9e44" />
             <Row indent label="❓ 미설명 — 오늘 확인할 것" main={`€${fmtE(unexplained)}`}
-              sub={sanctionedUnexplained>0 ? `인정직원 제외 시 €${fmtE(suspUnexplained)}` : null}
-              color={unexplained>5?"#e03131":(unexplained>1?"#e8590c":"#2f9e44")} strong />
+              sub={unexplained>0 ? <><span style={{color:"#e03131",fontWeight:700}}>누락 €{fmtE(gap.nurak)}</span> · 인정 €{fmtE(gap.sukking)}</> : null}
+              color={gap.nurak>5?"#e03131":(gap.nurak>1?"#e8590c":"#2f9e44")} strong />
           </>
         ) : (
           <Row label="사진 구멍" main="야간 집계 대기" color="#999"
-            sub={(reportExplainedTotal>0||naaxOverflow>0) ? `오늘 설명 입력 €${fmtE(reportExplainedTotal+naaxOverflow)}` : null} />
+            sub={(reportExplainedTotal>0||naaxOverflow>0||admSum>0) ? `오늘 설명 입력 €${fmtE(reportExplainedTotal+naaxOverflow+admSum)}` : null} />
         )}
 
         <Row label="서랍(카세북)"
@@ -360,6 +363,33 @@ function ReconTab({ data, persist }) {
                 })}
               </div>
             ) : null}
+          </div>
+
+          {/* 관리자 사후 설명 추가 (adm) */}
+          <div className="card" style={{marginBottom:10}}>
+            <div style={{fontWeight:700,color:"#2f9e44",marginBottom:4,fontSize:13}}>➕ 확인된 설명 추가 (관리자)</div>
+            <div style={{fontSize:10,color:"#888",marginBottom:8}}>
+              직원이 퇴근 때 리포트를 못 남긴 재촬영·무료쿠폰을 나중에 확인했으면 여기에 추가하세요 — <strong>설명됨</strong>에 합산되어 누락이 줄어듭니다.
+            </div>
+            {adm.length ? adm.map((r, i) => (
+              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,fontSize:11,color:"#555",padding:"3px 0",borderBottom:"1px solid #f5f5f5"}}>
+                <span>
+                  {reportKindLabel(r.kind)} · €{fmtE(r.full)}→€{fmtE(r.paid)}
+                  <span style={{color:"#2f9e44"}}> (설명 €{fmtE(Math.max((Number(r.full)||0)-(Number(r.paid)||0),0))})</span>
+                  {r.note ? ` · ${r.note}` : ""}
+                </span>
+                <button className="btn bd sm" onClick={()=>delAdm(i)}>삭제</button>
+              </div>
+            )) : null}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
+              <select value={admForm.kind} onChange={e=>setAdmForm({...admForm, kind:e.target.value})} style={{fontSize:12}}>
+                {REPORT_KINDS.map(k => <option key={k.k} value={k.k}>{k.label}</option>)}
+              </select>
+              <input type="number" placeholder="원가 €" value={admForm.full} onChange={e=>setAdmForm({...admForm, full:e.target.value})} style={{width:72,fontSize:12}} />
+              <input type="number" placeholder="받은 €" value={admForm.paid} onChange={e=>setAdmForm({...admForm, paid:e.target.value})} style={{width:72,fontSize:12}} />
+              <input placeholder="메모" value={admForm.note} onChange={e=>setAdmForm({...admForm, note:e.target.value})} style={{width:130,fontSize:12}} />
+              <button className="btn bp sm" onClick={addAdm}>추가</button>
+            </div>
           </div>
 
           {/* 인계 사슬 */}
