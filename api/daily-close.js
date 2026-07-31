@@ -216,7 +216,7 @@ async function pushSales(dateStr, rows, rc) {
   const rec = { id: idx >= 0 ? sales[idx].id : (Math.max(0, ...sales.map(s => Number(s.id) || 0)) + 1), date: dateStr };
   for (const f of SALES_FIELDS) rec[f] = Math.round(Number(rows[f] || 0));
   rec.rc = rc;
-  if (idx >= 0) for (const f of ["fs", "cc", "kd", "note", "nx"]) if (f in sales[idx]) rec[f] = sales[idx][f];
+  if (idx >= 0) for (const f of ["fs", "cc", "kd", "note", "nx", "adm"]) if (f in sales[idx]) rec[f] = sales[idx][f];
   if (idx >= 0) sales[idx] = rec; else sales.push(rec);
   const body = JSON.stringify({ multi: true, buckets: { sales: JSON.stringify(isNs ? { sales } : sales) } });
   let lastResp = null;
