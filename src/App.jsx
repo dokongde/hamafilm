@@ -3544,9 +3544,14 @@ function ReconTab({ data, persist }) {
   const reportList = Object.values(reportByStaff);
   // 퇴근 시 실시간 대조 스냅샷 (직원이 본 값 + 확인여부)
   const checkShifts = dayShifts.filter(s => s.checkGap != null);
-  const explainedTotal = reportList.reduce((a, r) => a + r.explained, 0);
+  const reportExplainedTotal = reportList.reduce((a, r) => a + r.explained, 0);
+  // 나약스(사진기계 카드결제) 초과분 = max(0, nx − mk). 기계꺼짐 재촬영이 나약스로 결제된 것 → 미기록 아님, 설명에 포함.
+  const nx = rec && rec.nx != null ? (Number(rec.nx)||0) : null;
+  const mkVal = rec ? (Number(rec.mk)||0) : 0;
+  const naaxOverflow = nx != null ? Math.max(0, nx - mkVal) : 0;
+  const explainedTotal = reportExplainedTotal + naaxOverflow; // 설명된 것 = 직원리포트 + 나약스초과
   const unrecordedTotal = unSum;                       // 안찍힘(루센트 쿠폰 미기록 €합계)
-  const unexplained = unrecordedTotal - explainedTotal; // 미설명 잔여
+  const unexplained = unrecordedTotal - explainedTotal; // 미설명 잔여 (= 안찍힘 − 리포트설명 − 나약스초과)
   // 인정 직원 몫 제외한 빼돌림 의심
   const unValByStaff = {};
   Object.values(groups).forEach(g => { if (g.staffId != null) unValByStaff[g.staffId] = (unValByStaff[g.staffId]||0) + g.sum; });
@@ -3784,20 +3789,25 @@ function ReconTab({ data, persist }) {
           ) : null}
           {rc ? (
             <>
+              {nx != null ? (
+                <div style={{fontSize:11,color:"#1971c2",marginBottom:8,padding:"6px 8px",background:"rgba(77,171,247,.08)",borderRadius:6}}>
+                  🔌 나약스 결제(기계꺼짐 재촬영) <strong>€{fmtE(naaxOverflow)}</strong> — 미기록 아님 (나약스 €{fmtE(nx)} − 루센트 기계카드 €{fmtE(mkVal)})
+                </div>
+              ) : null}
               <div className="g3" style={{marginTop:8,marginBottom:8}}>
                 <div className="chip"><div className="lb">❓ 안찍힘(루센트 미기록)</div><div className="vl" style={{color:"#e8590c"}}>€{fmtE(unrecordedTotal)}</div></div>
-                <div className="chip"><div className="lb">✅ 설명됨(무료·할인)</div><div className="vl" style={{color:"#2f9e44"}}>€{fmtE(explainedTotal)}</div></div>
+                <div className="chip"><div className="lb">✅ 설명됨{nx!=null?"(리포트+나약스)":"(무료·할인)"}</div><div className="vl" style={{color:"#2f9e44"}}>€{fmtE(explainedTotal)}</div></div>
                 <div className="chip" style={{background: unexplained>1 ? "rgba(255,107,107,.08)" : "rgba(47,158,68,.08)"}}><div className="lb">❓ 미설명 잔여</div><div className="vl" style={{color: unexplained>1 ? "#e03131" : "#2f9e44"}}>€{fmtE(unexplained)}</div></div>
               </div>
               <div className="card" style={{border:`1px solid ${unexpVerdict.color}`, background: unexplained>1 ? "rgba(255,107,107,.06)" : "rgba(47,158,68,.06)", display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                 <div style={{fontSize:12,fontWeight:700,color:unexpVerdict.color}}>{unexpVerdict.icon} {unexpVerdict.text}</div>
-                <div style={{fontSize:11,color:"#888"}}>안찍힘 €{fmtE(unrecordedTotal)} − 설명 €{fmtE(explainedTotal)} = 미설명 €{fmtE(unexplained)}{sanctionedUnexplained>0 ? ` · 인정제외 의심 €${fmtE(suspUnexplained)}` : ""}</div>
+                <div style={{fontSize:11,color:"#888"}}>안찍힘 €{fmtE(unrecordedTotal)} − 리포트 €{fmtE(reportExplainedTotal)}{naaxOverflow>0 ? ` − 나약스 €${fmtE(naaxOverflow)}` : ""} = 미설명 €{fmtE(unexplained)}{sanctionedUnexplained>0 ? ` · 인정제외 의심 €${fmtE(suspUnexplained)}` : ""}</div>
               </div>
               <div style={{fontSize:9,color:"#aaa",marginTop:6}}>* "안찍힘"은 루센트 쿠폰 미기록(값기반, 노이즈 있음)이라 참고용. report가 주 기록수단이며, 미설명이 크면 마감 근무자·카세북 차액과 함께 종합 판단하세요.</div>
             </>
           ) : (
             <div style={{fontSize:11,color:"#888",marginTop:8,padding:"8px 10px",background:"#f5f5f7",borderRadius:8}}>
-              ✅ 오늘 설명된 무료·할인 합계 <strong style={{color:"#2f9e44"}}>€{fmtE(explainedTotal)}</strong> · 안찍힘(루센트 쿠폰 미기록)과의 대조는 <strong>야간 집계(rc) 후</strong> 표시됩니다.
+              ✅ 오늘 설명된 무료·할인 합계 <strong style={{color:"#2f9e44"}}>€{fmtE(reportExplainedTotal)}</strong>{nx!=null ? <> · 🔌 나약스 결제 €{fmtE(naaxOverflow)}</> : null} · 안찍힘(루센트 쿠폰 미기록)과의 대조는 <strong>야간 집계(rc) 후</strong> 표시됩니다.
             </div>
           )}
         </div>
