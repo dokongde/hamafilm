@@ -29,17 +29,18 @@ export async function getSumupToday(key, today) {
   const r = await fetch(url, { headers: { Authorization: "Bearer " + key, Accept: "application/json" } });
   if (!r.ok) throw new Error("sumup " + r.status);
   const items = (await r.json()).items || [];
-  let eur = 0, count = 0;
+  let eur = 0, count = 0, cashEur = 0; // cashEur = 오늘 현금매출 전체(전 카테고리) — 서랍 기대값용
   for (const t of items) {
     if (t.status !== "SUCCESSFUL" || t.type !== "PAYMENT") continue;
     // 베를린 날짜 필터
     const d = new Date(new Date(t.timestamp).getTime() + BERLIN_OFFSET_MIN * 60000).toISOString().slice(0, 10);
     if (d !== today) continue;
+    if (t.payment_type === "CASH") cashEur += Number(t.amount) || 0;
     if (!isPhoto(t.product_summary || "")) continue;
     eur += Number(t.amount) || 0;
     count += 1;
   }
-  return { count, eur: Math.round(eur * 100) / 100 };
+  return { count, eur: Math.round(eur * 100) / 100, cashEur: Math.round(cashEur * 100) / 100 };
 }
 
 // ── 루센트: 오늘 쿠폰 세션 건수/€ (가격룰 적용) ───────────────
