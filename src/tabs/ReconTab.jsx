@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { dstr, getSlots, dowKo, todayStr, fmtE, nid, reportKindLabel, REPORT_KINDS } from "../lib/utils";
 import { attributeGap } from "../lib/recon";
 
@@ -16,6 +16,13 @@ function ReconTab({ data, persist }) {
   const [rcDate, setRcDate] = useState(defaultDate);
   const [noteInput, setNoteInput] = useState(""); // 그날 메모(재촬영·특이사항)
   const [admForm, setAdmForm] = useState({ kind: "reshoot", full: "", paid: "", note: "" }); // 관리자 사후 설명 입력폼
+  const detailsRef = useRef(null); // 상세 접힘
+  const admRef = useRef(null);     // 확인된 설명 추가 카드
+  // 하루 카드의 "➕ 설명 추가" → 상세 펼치고 입력폼으로 스크롤
+  const goAddExplain = () => {
+    if (detailsRef.current) detailsRef.current.open = true;
+    setTimeout(() => { admRef.current && admRef.current.scrollIntoView({ behavior: "smooth", block: "center" }); }, 60);
+  };
 
   const rec = (data.sales||[]).find(s => s.date === rcDate);
   const rc = rec && rec.rc ? rec.rc : null;
@@ -218,6 +225,11 @@ function ReconTab({ data, persist }) {
             <Row indent label="❓ 미설명 — 오늘 확인할 것" main={`€${fmtE(unexplained)}`}
               sub={unexplained>0 ? <><span style={{color:"#e03131",fontWeight:700}}>누락 €{fmtE(gap.nurak)}</span> · 인정{gap.skMade>0?"(신고)":""} €{fmtE(gap.sukking)}</> : null}
               color={gap.nurak>5?"#e03131":(gap.nurak>1?"#e8590c":"#2f9e44")} strong />
+            <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 4px 2px"}}>
+              <button className="btn bg2 sm" onClick={goAddExplain}>
+                ➕ 설명 추가 (재촬영·무료쿠폰 확인됨)
+              </button>
+            </div>
           </>
         ) : (
           <Row label="사진 구멍" main="야간 집계 대기" color="#999"
@@ -251,7 +263,7 @@ function ReconTab({ data, persist }) {
       </div>
 
       {/* ===== 상세 (접힘) ===== */}
-      <details style={{marginBottom:12}}>
+      <details ref={detailsRef} style={{marginBottom:12}}>
         <summary style={{cursor:"pointer",fontSize:13,fontWeight:700,color:"#1971c2",padding:"8px 4px",userSelect:"none"}}>상세 ▾</summary>
         <div style={{marginTop:10}}>
 
@@ -391,7 +403,7 @@ function ReconTab({ data, persist }) {
           </div>
 
           {/* 관리자 사후 설명 추가 (adm) */}
-          <div className="card" style={{marginBottom:10}}>
+          <div ref={admRef} className="card" style={{marginBottom:10}}>
             <div style={{fontWeight:700,color:"#2f9e44",marginBottom:4,fontSize:13}}>➕ 확인된 설명 추가 (관리자)</div>
             <div style={{fontSize:10,color:"#888",marginBottom:8}}>
               직원이 퇴근 때 리포트를 못 남긴 재촬영·무료쿠폰을 나중에 확인했으면 여기에 추가하세요 — <strong>설명됨</strong>에 합산되어 누락이 줄어듭니다.
