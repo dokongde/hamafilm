@@ -46,6 +46,8 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
     total += pay;
     rows.push({ st, h, pay, cnt: (map[st.id]||[]).length });
   });
+  // 그달 급여 €0(근무 없음 or 시급 0)은 목록에서 숨김 — 사장님 요청(보기 편하게)
+  const visRows = rows.filter(r => r.pay > 0);
   const pending = (data.payrollRecords||[]).filter(p =>
     p.adjType && p.adjType !== "없음" && p.adjAmount > 0 && nextYM(p.ym) === salYM
   );
@@ -86,7 +88,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
         </div>
       ) : null}
       <div className="g3" style={{marginBottom:12}}>
-        {rows.map(r => (
+        {visRows.map(r => (
           <div key={r.st.id} className="chip">
             <div className="lb"><span className="dot" style={{background:r.st.color}} />{r.st.name}</div>
             <div className="vl">€{fmtE(r.pay)}</div>
@@ -104,7 +106,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
         <table className="tbl">
           <thead><tr><th>직원</th><th>시간</th><th>시급</th><th>급여</th><th>횟수</th></tr></thead>
           <tbody>
-            {rows.map(r => (
+            {visRows.map(r => (
               <tr key={r.st.id}>
                 <td><span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong></td>
                 <td>{r.h}h</td>
