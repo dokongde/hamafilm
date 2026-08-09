@@ -21,10 +21,14 @@ jobs:
   close:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      deployments: read
     env:
       DATE: ${{ github.event.inputs.date || '2026-08-07' }}
       APP_URL: ${{ github.event.inputs.app_url || '' }}
       RECON_TOKEN: ${{ secrets.RECON_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: run daily-close for missing date
         run: |
@@ -50,19 +54,28 @@ jobs:
           const exists = inMonth.find(s => s.date === DATE);
           console.log(exists ? ("주의: " + DATE + " 이미 존재 → 재계산으로 갱신됩니다") : (DATE + " 누락 확인됨"));
 
-          // 2) 배포 URL 탐색 (HAMAFILM 타이틀 확인)
+          // 2) 배포 URL 탐색 — GitHub Deployments(Vercel 연동 기록)에서 실제 URL 추출 후 HAMAFILM 타이틀 확인
           let app = process.env.APP_URL;
           if (!app) {
-            const candidates = [
-              "https://hamafilm.vercel.app",
-              "https://hama-film.vercel.app",
-              "https://hamafilm-app.vercel.app",
-              "https://hamafilm-web.vercel.app",
-              "https://hamafilm-v2.vercel.app",
-              "https://hamafilm-two.vercel.app",
-              "https://hamafilm-one.vercel.app",
-            ];
-            for (const u of candidates) {
+            const gh = async p => (await fetch("https://api.github.com" + p, {
+              headers: { Authorization: "Bearer " + process.env.GITHUB_TOKEN,
+                Accept: "application/vnd.github+json", "User-Agent": "hamafilm-close" } })).json();
+            const urls = new Set();
+            const deps = await gh("/repos/${{ github.repository }}/deployments?per_page=15");
+            for (const d of (Array.isArray(deps) ? deps : [])) {
+              const sts = await gh("/repos/${{ github.repository }}/deployments/" + d.id + "/statuses?per_page=3");
+              for (const s of (Array.isArray(sts) ? sts : []))
+                for (const u of [s.environment_url, s.target_url])
+                  if (u && u.startsWith("https://") && !u.includes("vercel.com")) urls.add(u.replace(/\/$/, ""));
+              if (urls.size >= 12) break;
+            }
+            // 배포 URL(hamafilm-abc123-scope.vercel.app)에서 프로덕션 별칭(<프로젝트>.vercel.app) 파생
+            for (const u of [...urls]) {
+              const m = u.match(/^https:\/\/([a-z0-9-]+?)-[a-z0-9]{6,}-[a-z0-9-]+\.vercel\.app$/);
+              if (m) urls.add("https://" + m[1] + ".vercel.app");
+            }
+            console.log("후보 URL:", [...urls].join(", ") || "(없음)");
+            for (const u of urls) {
               try {
                 const r = await fetch(u, { redirect: "follow", signal: AbortSignal.timeout(8000) });
                 const t = await r.text();
