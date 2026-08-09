@@ -1,0 +1,102 @@
+# 누락된 날짜의 매출을 서버 마감 API(/api/daily-close)로 재계산해 시트에 넣는 수동 워크플로.
+# 이 세션(원격 개발 환경)은 외부망이 막혀 있어 GitHub Actions 러너에서 대신 호출한다.
+name: manual-daily-close
+
+on:
+  push:
+    branches: [claude/hamafilm-7day-revenue-missing-ttcykj]
+    paths: [".github/workflows/manual-daily-close.yml"]
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "재계산할 날짜 (YYYY-MM-DD)"
+        required: false
+        default: "2026-08-07"
+      app_url:
+        description: "배포 URL (예: https://hamafilm.vercel.app) — 비우면 자동 탐색"
+        required: false
+        default: ""
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATE: ${{ github.event.inputs.date || '2026-08-07' }}
+      APP_URL: ${{ github.event.inputs.app_url || '' }}
+      RECON_TOKEN: ${{ secrets.RECON_TOKEN }}
+    steps:
+      - name: run daily-close for missing date
+        run: |
+          cat > /tmp/run.mjs <<'EOF'
+          const GAS = "https://script.google.com/macros/s/AKfycbw48A5z_PANeJWD-GRZbNc0SPj2uZmurngM1TQiq3tx69VDR9zDC153IOsVcxGSGaV8/exec";
+          const DATE = process.env.DATE;
+          const TOKEN = process.env.RECON_TOKEN || "";
+
+          async function gasSales() {
+            const j = await (await fetch(GAS, { redirect: "follow" })).json();
+            const raw = j?.data?.sales || "[]";
+            const p = JSON.parse(raw);
+            return (p && !Array.isArray(p) && "sales" in p) ? p.sales : p;
+          }
+
+          // 1) 현재 시트 상태
+          const before = await gasSales();
+          const month = DATE.slice(0, 7);
+          const inMonth = before.filter(s => s && s.date && s.date.startsWith(month))
+            .sort((a, b) => a.date.localeCompare(b.date));
+          console.log("== 시트의 " + month + " 매출 날짜 ==");
+          for (const s of inMonth) console.log(" ", s.date, JSON.stringify(s));
+          const exists = inMonth.find(s => s.date === DATE);
+          console.log(exists ? ("주의: " + DATE + " 이미 존재 → 재계산으로 갱신됩니다") : (DATE + " 누락 확인됨"));
+
+          // 2) 배포 URL 탐색 (HAMAFILM 타이틀 확인)
+          let app = process.env.APP_URL;
+          if (!app) {
+            const candidates = [
+              "https://hamafilm.vercel.app",
+              "https://hama-film.vercel.app",
+              "https://hamafilm-app.vercel.app",
+              "https://hamafilm-web.vercel.app",
+              "https://hamafilm-v2.vercel.app",
+              "https://hamafilm-two.vercel.app",
+              "https://hamafilm-one.vercel.app",
+            ];
+            for (const u of candidates) {
+              try {
+                const r = await fetch(u, { redirect: "follow", signal: AbortSignal.timeout(8000) });
+                const t = await r.text();
+                if (r.ok && t.includes("HAMAFILM")) { app = u; break; }
+                console.log("probe miss:", u, r.status);
+              } catch (e) { console.log("probe fail:", u, String(e).slice(0, 60)); }
+            }
+          }
+          if (!app) {
+            console.log("RESULT: APP_URL_NOT_FOUND — 배포 URL을 못 찾음. workflow_dispatch로 app_url을 지정해 재실행 필요.");
+            process.exit(1);
+          }
+          console.log("배포 URL:", app);
+
+          // 3) daily-close 호출 (과거 날짜 재계산)
+          const q = app + "/api/daily-close?date=" + DATE + (TOKEN ? "&token=" + encodeURIComponent(TOKEN) : "");
+          const resp = await fetch(q, { redirect: "follow", signal: AbortSignal.timeout(120000) });
+          const body = await resp.text();
+          console.log("daily-close HTTP", resp.status);
+          console.log(body.slice(0, 2000));
+          if (resp.status === 401) {
+            console.log("RESULT: UNAUTHORIZED — RECON_TOKEN이 필요합니다 (repo secret RECON_TOKEN 설정 후 재실행).");
+            process.exit(1);
+          }
+
+          // 4) 저장 검증
+          await new Promise(r => setTimeout(r, 3000));
+          const after = await gasSales();
+          const rec = after.find(s => s && s.date === DATE);
+          if (rec) {
+            console.log("RESULT: SAVED —", DATE, "기록:", JSON.stringify(rec));
+          } else {
+            console.log("RESULT: NOT_SAVED —", DATE, "가 시트에 없음. 위 daily-close 응답 확인 필요.");
+            process.exit(1);
+          }
+          EOF
+          node /tmp/run.mjs
