@@ -162,6 +162,7 @@ function ReconTab({ data, persist }) {
   const gap = attributeGap(data, rec || null); // { explained, unexplained, sukking, nurak, ... }
   const explainedTotal = gap.explained; // 리포트 + 관리자 + 나약스초과 + 과거마킹
   const unexplained = photoGap != null ? gap.unexplained : null; // ← 오늘 확인할 것
+  const noReport = unexplained > 0 && reportList.length === 0 && admSum === 0; // 구멍은 있는데 설명이 하나도 없음 → 알바 미입력 의심
 
   // ===== 매출 =====
   const machineSales = rec ? ((rec.mc||0)+(rec.mk||0)) : 0;
@@ -216,30 +217,30 @@ function ReconTab({ data, persist }) {
 
         {rc ? (
           <>
-            <Row label="사진 구멍" main={`€${fmtE(photoGap)}`}
-              sub={`쿠폰 €${fmtE(rc.cp_eur||0)} − SumUp사진 €${fmtE(rc.su_eur||0)}`}
-              color="#b8860b" />
-            <Row indent label="설명됨" main={`€${fmtE(explainedTotal)}`}
-              sub={`리포트 €${fmtE(reportExplainedTotal)}${admSum>0?` + 관리자 €${fmtE(admSum)}`:""}${naaxOverflow>0?` + 나약스 €${fmtE(naaxOverflow)}`:""}${markedUnSum>0?` + 과거마킹 €${fmtE(markedUnSum)}`:""}`}
-              color="#2f9e44" />
-            <Row indent label="❓ 미설명 — 오늘 확인할 것" main={`€${fmtE(unexplained)}`}
-              sub={unexplained>0 ? <><span style={{color:"#e03131",fontWeight:700}}>누락 €{fmtE(gap.nurak)}</span> · 인정{gap.skMade>0?"(신고)":""} €{fmtE(gap.sukking)}</> : null}
+            <Row label="❓ 미설명" main={`€${fmtE(unexplained)}`}
+              sub={unexplained > 0 ? (
+                <>
+                  <div>사진구멍 €{fmtE(photoGap)} − 설명됨 €{fmtE(explainedTotal)}</div>
+                  {noReport ? <div style={{color:"#e8590c",fontWeight:700,marginTop:2}}>⚠️ 직원 리포트 0건 — 퇴근 때 설명을 안 남겼을 수 있어요</div> : null}
+                  {gap.sukking > 0 ? <div style={{marginTop:2}}><span style={{color:"#e03131",fontWeight:700}}>누락 €{fmtE(gap.nurak)}</span> · 인정몫 €{fmtE(gap.sukking)}{gap.skMade>0?" (신고 확정)":" (추정)"}</div> : null}
+                </>
+              ) : <span style={{color:"#2f9e44"}}>✅ 전부 설명됨 (구멍 €{fmtE(photoGap)})</span>}
               color={gap.nurak>5?"#e03131":(gap.nurak>1?"#e8590c":"#2f9e44")} strong />
-            <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 4px 2px"}}>
-              <button className="btn bg2 sm" onClick={goAddExplain}>
-                ➕ 설명 추가 (재촬영·무료쿠폰 확인됨)
-              </button>
-            </div>
+            {unexplained > 0 ? (
+              <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 4px 2px"}}>
+                <button className="btn bg2 sm" onClick={goAddExplain}>➕ 설명 추가</button>
+              </div>
+            ) : null}
           </>
         ) : (
-          <Row label="사진 구멍" main="야간 집계 대기" color="#999"
+          <Row label="❓ 미설명" main="야간 집계 대기" color="#999"
             sub={(reportExplainedTotal>0||naaxOverflow>0||admSum>0) ? `오늘 설명 입력 €${fmtE(reportExplainedTotal+naaxOverflow+admSum)}` : null} />
         )}
 
         {skReportedTotal > 0 ? (
           <Row indent label="🔒 슈킹 신고 (인정직원)" main={`€${fmtE(skReportedTotal)}`}
-            sub={`${skReports.map(r=>`${r.name} €${fmtE(r.v)}`).join(" · ")}${rc ? ` · 신고 €${fmtE(skReportedTotal)} vs 추정 €${fmtE(gap.sukkingEst)}${Math.abs(skReportedTotal-gap.sukkingEst)>=5 ? " — 차이 확인" : ""}` : ""}`}
-            color={rc && Math.abs(skReportedTotal - gap.sukkingEst) >= 5 ? "#e8590c" : "#1971c2"} />
+            sub={skReports.map(r=>`${r.name} €${fmtE(r.v)}`).join(" · ")}
+            color="#1971c2" />
         ) : null}
 
         <Row label="서랍(카세북)"
