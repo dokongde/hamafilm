@@ -55,11 +55,11 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
         redirect: "follow"
       });
       const j = JSON.parse(await res.text());
-      if (j.ok && j.sent > 0) toast(`✅ ${st.name}에게 알림 전송! (기기 ${j.sent}대)`);
-      else if (j.ok) toast(`⚠️ ${st.name} 알림 미구독 — 직원 화면에서 "알림 켜기" 필요`);
-      else toast("❌ 전송 실패: " + (j.error || "알 수 없는 오류"));
+      if (j.ok && j.sent > 0) toast(`${st.name}에게 알림 전송 (기기 ${j.sent}대)`);
+      else if (j.ok) toast(`${st.name} 알림 미구독 — 직원 화면에서 "알림 켜기" 필요`);
+      else toast("전송 실패: " + (j.error || "알 수 없는 오류"));
     } catch (e) {
-      toast("❌ 전송 실패 — 인터넷 확인");
+      toast("전송 실패 — 인터넷 확인");
     } finally {
       setNotifying(null);
     }
@@ -102,8 +102,8 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
     const head = "직원\t근무일\t시간\t시급(€)\t총액 브루토(€)";
     const lines = visRows.map(r => `${r.st.name}\t${r.cnt}\t${r.h}\t${fmtE(r.st.wage)}\t${fmtE(r.pay)}`);
     navigator.clipboard.writeText([head, ...lines].join("\n"))
-      .then(() => toast(`📋 ${salYM} 정산 ${visRows.length}명 복사됨 — lexware/엑셀에 붙여넣기`))
-      .catch(() => toast("❌ 복사 실패"));
+      .then(() => toast(`${salYM} 정산 ${visRows.length}명 복사됨 — lexware/엑셀에 붙여넣기`))
+      .catch(() => toast("복사 실패"));
   };
 
   return (
@@ -116,7 +116,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
       </div>
       {pending.length > 0 ? (
         <div style={{borderRadius:9,padding:"12px 14px",marginBottom:12,background:"rgba(255,107,53,.12)",border:"1px solid rgba(255,107,53,.4)"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#d94c1a",marginBottom:7}}>⚠️ 이번달 반영할 조정금액!</div>
+          <div style={{fontSize:12,fontWeight:700,color:"#d94c1a",marginBottom:7}}>이번달 반영할 조정금액</div>
           {pending.map(p => {
             const st = gSt(p.staffId);
             // 옛날 "추가"도 "추가지급"과 같이 처리
@@ -155,7 +155,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
       {dayRows.length > 0 ? (
         <div className="card" style={{marginBottom:12, border:"1px solid rgba(245,197,24,.35)"}}>
           <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>🗓 {year} 근무일수 — 단기고용 70일 관리</span>
+            <span>{year} 근무일수 — 단기고용 70일 관리</span>
             <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>미니잡 설정 직원 제외</span>
           </div>
           <table className="tbl">
@@ -178,11 +178,11 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
                     <td className="mn" style={{color:"#888"}}>주 {r.pace.toFixed(1)}회</td>
                     <td className="mn" style={{color: estOver ? "#e03131" : "#888"}}>~{r.yearEndEst}일</td>
                     <td>
-                      {over ? <span className="badge bred">🚨 70일 초과 — 미니잡 전환 필요</span>
-                        : red ? <span className="badge bred">🔴 임박 — 시프트 조절!</span>
-                        : ylw ? <span className="badge bylw">🟠 주의</span>
-                        : estOver ? <span className="badge bylw">⚠️ 이 페이스면 초과 예상</span>
-                        : <span className="badge bgrn">✅ 여유</span>}
+                      {over ? <span className="badge bred">70일 초과 — 미니잡 전환</span>
+                        : red ? <span className="badge bred">임박 — 시프트 조절</span>
+                        : ylw ? <span className="badge bylw">주의</span>
+                        : estOver ? <span className="badge bylw">초과 예상</span>
+                        : <span className="badge bgrn">여유</span>}
                     </td>
                   </tr>
                 );
@@ -190,14 +190,14 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
             </tbody>
           </table>
           <p style={{fontSize:10,color:"#999",margin:"6px 0 0"}}>
-            근무기록 기준 자동 집계 (다른 곳 단기 알바 일수는 별도 합산). 60일 🟠 · 67일 🔴 경고 — 넘을 것 같으면 시프트를 다른 직원에게 나누거나 해당 직원만 미니잡으로 전환하세요.
+            근무기록 기준 자동 집계 (다른 곳 단기 알바 일수는 별도 합산). 60일·67일 경고 — 넘을 것 같으면 시프트를 나누거나 해당 직원만 미니잡으로 전환.
           </p>
         </div>
       ) : null}
       <div className="card" style={{marginBottom:12}}>
         <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span>급여 상세</span>
-          <button className="btn bs sm" onClick={copyLexware} title="탭 구분 텍스트로 복사 — lexware/엑셀에 붙여넣기">📋 lexware용 복사</button>
+          <button className="btn bs sm" onClick={copyLexware} title="탭 구분 텍스트로 복사 — lexware/엑셀에 붙여넣기">lexware 복사</button>
         </div>
         <table className="tbl">
           <thead><tr><th>직원</th><th>시간</th><th>시급</th><th>급여</th><th>횟수</th></tr></thead>
@@ -216,22 +216,22 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
       </div>
       <div className="card" style={{border:"1px solid rgba(77,171,247,.3)", marginBottom:12}}>
         <div className="ct" style={{color:"#1971c2",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span>💰 {salYM} 지급 관리</span>
+          <span>{salYM} 지급 관리</span>
           <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>
             {(() => {
               let paidCnt = 0, readyCnt = 0;
-              rows.forEach(r => {
+              visRows.forEach(r => {
                 const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
                 if (!pay) return;
                 const status = pay.status || (pay.paid ? "paid" : "none");
                 if (status === "paid") paidCnt++;
                 else if (status === "ready") readyCnt++;
               });
-              return `✓${paidCnt}  📦${readyCnt}  /${rows.length}`;
+              return `완료 ${paidCnt} · 준비 ${readyCnt} / ${visRows.length}`;
             })()}
           </span>
         </div>
-        {rows.length === 0 ? (
+        {visRows.length === 0 ? (
           <p style={{color:"#888",fontSize:12}}>이 달에 근무한 직원 없음</p>
         ) : (
           <table className="tbl">
@@ -246,7 +246,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => {
+              {visRows.map(r => {
                 const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
                 const status = pay ? (pay.status || (pay.paid ? "paid" : "none")) : "none";
                 const paid = status === "paid";
@@ -307,14 +307,14 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
                     </td>
                     <td>
                       {paid ? (
-                        <span className="badge bgrn">✓ 지급완료</span>
+                        <span className="badge bgrn">지급완료</span>
                       ) : ready ? (
-                        <span className="badge bylw">📦 준비완료</span>
+                        <span className="badge bylw">준비완료</span>
                       ) : (
                         <span className="badge bred">미지급</span>
                       )}
                     </td>
-                    <td>
+                    <td style={{whiteSpace:"nowrap"}}>
                       <button
                         className={"btn " + (paid ? "bs" : "bp") + " sm"}
                         onClick={()=>setModal({
@@ -329,22 +329,22 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
                             isAdd, amount: adjAmt, desc: adjustment.adjDesc
                           } : null
                         })}>
-                        {paid ? "수정" : ready ? "지급완료로" : "지급체크"}
+                        {paid ? "수정" : ready ? "완료" : "지급"}
                       </button>
                       <button
                         className="btn bs sm"
-                        style={{marginTop:4,display:"block"}}
+                        style={{marginLeft:3}}
                         disabled={notifying === r.st.id}
                         title="월급 준비 푸시 알림 보내기"
                         onClick={()=>sendPayNotify(r.st, pay ? (pay.amount || finalPay) : finalPay)}>
-                        {notifying === r.st.id ? "⏳ 전송중" : "💰 알림"}
+                        {notifying === r.st.id ? "전송중" : "알림"}
                       </button>
                       <button
                         className="btn bs sm"
-                        style={{marginTop:4,display:"block"}}
+                        style={{marginLeft:3}}
                         title="현금 수령확인서 인쇄 (자동 채움)"
                         onClick={()=>printQuittung(r.st, salYM, r.h, pay ? (pay.amount || finalPay) : finalPay)}>
-                        🧾 수령증
+                        수령증
                       </button>
                     </td>
                   </tr>
@@ -356,7 +356,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
       </div>
       <div className="card" style={{border:"1px solid rgba(78,205,196,.3)"}}>
         <div className="ct" style={{color:"#4ecdc4",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span>📋 회계사 리포트</span>
+          <span>회계사 리포트</span>
           <button className="btn bs sm" onClick={()=>setModal({type:"addPayroll", ym:salYM})}>+ 추가</button>
         </div>
         {prSorted.length === 0 ? (
