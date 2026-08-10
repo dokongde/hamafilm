@@ -73,7 +73,7 @@ function StaffMgmtTab({ adminDevice, data, disableAdminDevice, enableAdminDevice
             { f: "lohnquittung.docx",               t: "🧾 현금 수령확인서",       s: "매회 서명 + 연간 지급대장" },
             { f: "stundenzettel.docx",              t: "🗓 근무시간 기록표",       s: "월별 · § 17 MiLoG 기록 의무" },
           ].map(d => (
-            <a key={d.f} href={`/contracts/${d.f}`} download
+            <a key={d.f} href={`/contracts/${d.f}`} download target="_blank" rel="noopener noreferrer"
                className="btn bs" style={{padding:"12px",textAlign:"left",lineHeight:1.4,textDecoration:"none",display:"block"}}>
               <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{d.t}</div>
               <div style={{fontSize:10,color:"#666"}}>{d.s}</div>
