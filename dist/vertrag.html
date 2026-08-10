@@ -35,7 +35,7 @@
   <h2 id="t2"></h2>
 
   <div class="de"><b>Zwischen</b> / 사용자 <span class="fill">Hamafilm</span>, <span class="blank"></span> (Anschrift / 주소)</div>
-  <div class="de"><b>und</b> / 근로자 <span class="fill" id="name"></span>, geb. am <span class="blank"></span>, wohnhaft <span class="blank"></span></div>
+  <div class="de"><b>und</b> / 근로자 (이름 정자로 / Name in Druckbuchstaben) <span class="blank" style="min-width:200px"></span>, geb. am <span class="blank"></span>, wohnhaft <span class="blank"></span></div>
   <div class="kop">사용자(하마필름)와 근로자 사이에 아래와 같이 근로계약을 체결한다.</div>
 
   <div id="body"></div>
@@ -58,8 +58,8 @@
   const B = (min=120) => `<span class="blank" style="min-width:${min}px"></span>`;
   const set = (id, html) => document.getElementById(id).innerHTML = html;
 
-  set("name", name || "이름");
-  document.title = `Arbeitsvertrag ${name} (${type==="mini"?"Minijob":"kurzfristig"})`;
+  // 이름은 자동으로 채우지 않음 — 라틴 문자(여권 표기)로 직접 손으로 적도록 빈칸 유지
+  document.title = `Arbeitsvertrag (${type==="mini"?"Minijob":"kurzfristig"})`;
 
   if (type === "mini") {
     set("t1", "Arbeitsvertrag für geringfügig entlohnte Beschäftigte (Minijob)");
