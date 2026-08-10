@@ -21,6 +21,11 @@ function StaffMgmtTab({ adminDevice, data, disableAdminDevice, enableAdminDevice
                   <strong>{st.name}</strong>
                   {st.empType === "mini" ? <span className="badge bblu" style={{marginLeft:5}}>미니잡</span>
                     : st.empType === "kurz" ? <span className="badge bgrn" style={{marginLeft:5}}>단기</span> : null}
+                  <div style={{marginTop:2}}>
+                    {st.contractSigned
+                      ? <span style={{fontSize:9,color:"#20a060"}} title={st.contractNote||""}>✍️ 계약서 받음{st.contractDate?` · ${st.contractDate}`:""}</span>
+                      : <span style={{fontSize:9,color:"#e8590c"}}>✍️ 계약서 미접수</span>}
+                  </div>
                 </td>
                 <td style={{color:"#888"}}>{st.phone || "—"}</td>
                 <td className="mn">€{fmtE(st.wage)}/h</td>
@@ -70,7 +75,14 @@ function StaffMgmtTab({ adminDevice, data, disableAdminDevice, enableAdminDevice
       </div>
 
       <div className="card" style={{marginTop:12,border:"1px solid rgba(46,213,115,.3)"}}>
-        <div className="ct" style={{color:"#20a060"}}>📄 계약서·서류 양식 (독·한 병기)</div>
+        <div className="ct" style={{color:"#20a060",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span>📄 계약서·서류 양식 (독·한 병기)</span>
+          {(() => {
+            const signed = (data.staff||[]).filter(s=>s.contractSigned).length;
+            const tot = (data.staff||[]).length;
+            return <span style={{fontSize:10,fontWeight:400,textTransform:"none",letterSpacing:0,color: signed<tot?"#e8590c":"#20a060"}}>✍️ 접수 {signed}/{tot}</span>;
+          })()}
+        </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
           {[
             { f: "arbeitsvertrag-kurzfristig.docx", t: "📝 근로계약서 — 단기고용", s: "kurzfristig · 연 70일 이내 · 신규 3명용" },
