@@ -17,7 +17,11 @@ function StaffMgmtTab({ adminDevice, data, disableAdminDevice, enableAdminDevice
           <tbody>
             {(data.staff||[]).map(st => (
               <tr key={st.id}>
-                <td><strong>{st.name}</strong></td>
+                <td>
+                  <strong>{st.name}</strong>
+                  {st.empType === "mini" ? <span className="badge bblu" style={{marginLeft:5}}>미니잡</span>
+                    : st.empType === "kurz" ? <span className="badge bgrn" style={{marginLeft:5}}>단기</span> : null}
+                </td>
                 <td style={{color:"#888"}}>{st.phone || "—"}</td>
                 <td className="mn">€{fmtE(st.wage)}/h</td>
                 <td><span style={{display:"inline-block",width:16,height:16,borderRadius:"50%",background:st.color}} /></td>

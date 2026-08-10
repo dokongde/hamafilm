@@ -41,15 +41,16 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
   const [color, setColor] = useState(ed?.color || "#5352ed");
   const [pin, setPin] = useState(ed?.pin || "");
   const [kurzStart, setKurzStart] = useState(ed?.kurzStart || "");
+  const [empType, setEmpType] = useState(ed?.empType || "");
   const colors = ["#5352ed","#ff6b35","#4ecdc4","#f5c518","#ff4757","#2ed573","#a55eea","#ff6b9d","#00d2d3","#ff9ff3"];
   const save = async () => {
     if (!name) { toast("이름 입력"); return; }
     if (pin && !/^\d{4}$/.test(pin)) { toast("PIN은 4자리 숫자"); return; }
     let nd;
     if (ed) {
-      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color, pin, kurzStart} : s)};
+      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color, pin, kurzStart, empType} : s)};
     } else {
-      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color, pin, kurzStart}]};
+      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color, pin, kurzStart, empType}]};
     }
     await persist(nd);
     close();
@@ -102,13 +103,28 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
         </div>
         <div className="fr">
           <div>
-            <label>📋 단기고용 계약 시작일 (70일 카운트 시작)</label>
-            <input type="date" value={kurzStart} onChange={e=>setKurzStart(e.target.value)} />
+            <label>📋 고용 형태</label>
+            <select value={empType} onChange={e=>setEmpType(e.target.value)}>
+              <option value="">미설정</option>
+              <option value="kurz">단기고용 (kurzfristig · 연 70일)</option>
+              <option value="mini">미니잡 (월 603€ 이내)</option>
+            </select>
             <div style={{fontSize:10,color:"#888",marginTop:3}}>
-              💡 공식 등록·계약 시작일부터 근무일을 셉니다. 같은 해에 다른 단기 알바로 일한 일수는 법적으로 합산되니 계약서에 기재해두세요.
+              💡 미니잡으로 설정하면 급여 탭의 70일 카운터에서 빠집니다.
             </div>
           </div>
         </div>
+        {empType !== "mini" ? (
+          <div className="fr">
+            <div>
+              <label>🗓 단기고용 계약 시작일 (70일 카운트 시작)</label>
+              <input type="date" value={kurzStart} onChange={e=>setKurzStart(e.target.value)} />
+              <div style={{fontSize:10,color:"#888",marginTop:3}}>
+                💡 공식 등록·계약 시작일부터 근무일을 셉니다. 같은 해에 다른 단기 알바로 일한 일수는 법적으로 합산되니 계약서에 기재해두세요.
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div className="mf">
           <button className="btn bs" onClick={close}>취소</button>
           <button className="btn bp" onClick={save}>저장</button>
