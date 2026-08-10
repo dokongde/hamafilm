@@ -92,6 +92,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
   const year = String(new Date().getFullYear());
   const today = todayStr();
   const dayRows = (data.staff||[])
+    .filter(st => st.empType !== "mini") // 미니잡 직원은 70일 한도 대상이 아님
     .map(st => ({ st, ...yearDayStats(data.shifts, st.id, year, today, st.kurzStart) }))
     .filter(r => r.used + r.future > 0)
     .sort((a, b) => b.used - a.used);
@@ -155,7 +156,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
         <div className="card" style={{marginBottom:12, border:"1px solid rgba(245,197,24,.35)"}}>
           <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>🗓 {year} 근무일수 — 단기고용 70일 관리</span>
-            <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>미니잡 직원은 해당 없음</span>
+            <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>미니잡 설정 직원 제외</span>
           </div>
           <table className="tbl">
             <thead><tr><th>직원</th><th>사용</th><th>예정</th><th>페이스</th><th>연말 예상</th><th>상태</th></tr></thead>
