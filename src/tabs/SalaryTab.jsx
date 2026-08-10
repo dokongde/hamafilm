@@ -116,16 +116,29 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
   };
 
   return (
-    <div>
-      <div className="fr" style={{marginBottom:12}}>
+    <div className="salary-compact">
+      <style>{`
+        .salary-compact .card{padding:10px 12px;margin-bottom:8px}
+        .salary-compact .ct{margin-bottom:8px}
+        .salary-compact .tbl{font-size:11px}
+        .salary-compact .tbl th{padding:4px 6px;font-size:9px}
+        .salary-compact .tbl td{padding:4px 6px}
+        .salary-compact .chip{padding:6px 9px;border-radius:6px}
+        .salary-compact .chip .vl{font-size:13px}
+        .salary-compact .chip .lb{margin-bottom:1px}
+        .salary-compact .chip .sb{font-size:9px;margin-top:0}
+        .salary-compact .btn.sm{padding:3px 8px;font-size:10px}
+        .salary-compact .badge{font-size:9px;padding:2px 6px}
+      `}</style>
+      <div className="fr" style={{marginBottom:8}}>
         <div>
           <label>조회 월</label>
-          <input type="month" value={salYM} onChange={e=>setSalYM(e.target.value)} style={{width:180}} />
+          <input type="month" value={salYM} onChange={e=>setSalYM(e.target.value)} style={{width:150,padding:"5px 8px",fontSize:12}} />
         </div>
       </div>
       {pending.length > 0 ? (
-        <div style={{borderRadius:9,padding:"12px 14px",marginBottom:12,background:"rgba(255,107,53,.12)",border:"1px solid rgba(255,107,53,.4)"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#d94c1a",marginBottom:7}}>이번달 반영할 조정금액</div>
+        <div style={{borderRadius:8,padding:"8px 10px",marginBottom:8,background:"rgba(255,107,53,.12)",border:"1px solid rgba(255,107,53,.4)"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#d94c1a",marginBottom:5}}>이번달 반영할 조정금액</div>
           {pending.map(p => {
             const st = gSt(p.staffId);
             // 옛날 "추가"도 "추가지급"과 같이 처리
@@ -147,7 +160,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
           })}
         </div>
       ) : null}
-      <div className="g3" style={{marginBottom:12}}>
+      <div className="g3" style={{marginBottom:8,gap:6}}>
         {visRows.map(r => (
           <div key={r.st.id} className="chip">
             <div className="lb"><span className="dot" style={{background:r.st.color}} />{r.st.name}</div>
@@ -162,7 +175,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
         </div>
       </div>
       {dayRows.length > 0 ? (
-        <div className="card" style={{marginBottom:12, border:"1px solid rgba(245,197,24,.35)"}}>
+        <div className="card" style={{border:"1px solid rgba(245,197,24,.35)"}}>
           <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>{year} 근무일수 — 단기고용 70일 관리</span>
             <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>미니잡 설정 직원 제외</span>
@@ -203,41 +216,24 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
           </p>
         </div>
       ) : null}
-      <div className="card" style={{marginBottom:12}}>
-        <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span>급여 상세</span>
-          <button className="btn bs sm" onClick={copyLexware} title="탭 구분 텍스트로 복사 — lexware/엑셀에 붙여넣기">lexware 복사</button>
-        </div>
-        <table className="tbl">
-          <thead><tr><th>직원</th><th>시간</th><th>시급</th><th>급여</th><th>횟수</th></tr></thead>
-          <tbody>
-            {visRows.map(r => (
-              <tr key={r.st.id}>
-                <td><span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong></td>
-                <td>{r.h}h</td>
-                <td className="mn">€{fmtE(r.st.wage)}/h</td>
-                <td className="pos">€{fmtE(r.pay)}</td>
-                <td style={{color:"#888"}}>{r.cnt}회</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="card" style={{border:"1px solid rgba(77,171,247,.3)", marginBottom:12}}>
+      <div className="card" style={{border:"1px solid rgba(77,171,247,.3)"}}>
         <div className="ct" style={{color:"#1971c2",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span>{salYM} 지급 관리</span>
-          <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>
-            {(() => {
-              let paidCnt = 0, readyCnt = 0;
-              visRows.forEach(r => {
-                const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
-                if (!pay) return;
-                const status = pay.status || (pay.paid ? "paid" : "none");
-                if (status === "paid") paidCnt++;
-                else if (status === "ready") readyCnt++;
-              });
-              return `완료 ${paidCnt} · 준비 ${readyCnt} / ${visRows.length}`;
-            })()}
+          <span style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>
+              {(() => {
+                let paidCnt = 0, readyCnt = 0;
+                visRows.forEach(r => {
+                  const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
+                  if (!pay) return;
+                  const status = pay.status || (pay.paid ? "paid" : "none");
+                  if (status === "paid") paidCnt++;
+                  else if (status === "ready") readyCnt++;
+                });
+                return `완료 ${paidCnt} · 준비 ${readyCnt} / ${visRows.length}`;
+              })()}
+            </span>
+            <button className="btn bs sm" onClick={copyLexware} title="탭 구분 텍스트로 복사 — lexware/엑셀에 붙여넣기">lexware 복사</button>
           </span>
         </div>
         {visRows.length === 0 ? (
@@ -332,7 +328,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
                     {isOpen ? (
                       <tr>
                         <td colSpan={4} style={{background:"#f8f9fa",fontSize:11,color:"#666",lineHeight:1.9,padding:"8px 12px"}}>
-                          <div>방법 {pay && pay.method ? pay.method : "—"} · 지급일 {pay && pay.paidDate ? pay.paidDate : "—"} · 근무 {r.h}h {r.cnt}회 (기본 €{fmtE(r.pay)})</div>
+                          <div>방법 {pay && pay.method ? pay.method : "—"} · 지급일 {pay && pay.paidDate ? pay.paidDate : "—"} · 근무 {r.h}h {r.cnt}회 · 시급 €{fmtE(r.st.wage)} (기본 €{fmtE(r.pay)})</div>
                           {hasActual ? (
                             <div>확정 <strong style={{color:"#4ecdc4"}}>€{fmtE(baseConfirm)}</strong> · 실정산 <strong style={{color:"#1971c2"}}>€{fmtE(settleNow)}</strong></div>
                           ) : null}
