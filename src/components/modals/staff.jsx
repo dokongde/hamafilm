@@ -42,15 +42,18 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
   const [pin, setPin] = useState(ed?.pin || "");
   const [kurzStart, setKurzStart] = useState(ed?.kurzStart || "");
   const [empType, setEmpType] = useState(ed?.empType || "");
+  const [contractSigned, setContractSigned] = useState(ed?.contractSigned || false);
+  const [contractDate, setContractDate] = useState(ed?.contractDate || "");
+  const [contractNote, setContractNote] = useState(ed?.contractNote || "");
   const colors = ["#5352ed","#ff6b35","#4ecdc4","#f5c518","#ff4757","#2ed573","#a55eea","#ff6b9d","#00d2d3","#ff9ff3"];
   const save = async () => {
     if (!name) { toast("이름 입력"); return; }
     if (pin && !/^\d{4}$/.test(pin)) { toast("PIN은 4자리 숫자"); return; }
     let nd;
     if (ed) {
-      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color, pin, kurzStart, empType} : s)};
+      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color, pin, kurzStart, empType, contractSigned, contractDate, contractNote} : s)};
     } else {
-      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color, pin, kurzStart, empType}]};
+      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color, pin, kurzStart, empType, contractSigned, contractDate, contractNote}]};
     }
     await persist(nd);
     close();
@@ -125,6 +128,34 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
             </div>
           </div>
         ) : null}
+        <div className="fr">
+          <div>
+            <label>✍️ 서명한 계약서 접수</label>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontWeight:400,fontSize:13,cursor:"pointer",marginTop:2}}>
+              <input type="checkbox" checked={contractSigned} style={{width:"auto"}}
+                onChange={e=>{
+                  setContractSigned(e.target.checked);
+                  if (e.target.checked && !contractDate) setContractDate(new Date().toISOString().slice(0,10));
+                }} />
+              서명한 계약서를 받았음
+            </label>
+          </div>
+        </div>
+        {contractSigned ? (
+          <div className="fr fc2">
+            <div>
+              <label>받은 날짜</label>
+              <input type="date" value={contractDate} onChange={e=>setContractDate(e.target.value)} />
+            </div>
+            <div>
+              <label>보관 위치 (메모)</label>
+              <input value={contractNote} onChange={e=>setContractNote(e.target.value)} placeholder="예: 드라이브 계약서폴더 / 캐비닛" />
+            </div>
+          </div>
+        ) : null}
+        <div style={{fontSize:10,color:"#888",margin:"2px 0 4px",lineHeight:1.5}}>
+          💡 알바생이 서명 후 사진 찍어 보내면 구글 드라이브 등에 보관하고 여기 체크 — 누구 계약서를 받았는지 한눈에 관리돼요.
+        </div>
         <div className="mf">
           <button className="btn bs" onClick={close}>취소</button>
           <button className="btn bp" onClick={save}>저장</button>
