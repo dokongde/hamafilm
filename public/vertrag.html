@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arbeitsvertrag — Hamafilm</title>
+<style>
+  body{font-family:Calibri,'Malgun Gothic',sans-serif;max-width:720px;margin:20px auto;padding:0 16px;color:#111;font-size:13.5px;line-height:1.5;background:#fff}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:20px}
+  .bar button{font-size:14px;padding:9px 16px;border:none;border-radius:8px;background:#1971c2;color:#fff;font-weight:700}
+  .bar span{font-size:11px;color:#888}
+  h1{font-size:20px;margin:0 0 2px;text-align:center}
+  h2{font-size:14px;color:#444;margin:0 0 20px;font-weight:600;text-align:center}
+  .cl{font-weight:700;font-size:14.5px;margin:18px 0 5px}
+  .cl .ko{font-size:12.5px;color:#555;margin-left:8px}
+  .de{margin:4px 0}
+  .ko{color:#555;font-size:12px}
+  .kop{color:#555;font-size:11.5px;margin:2px 0 10px}
+  .fill{background:#fff3bf;padding:1px 7px;border-radius:4px;font-weight:700;border-bottom:1px solid #f0c000}
+  .blank{display:inline-block;min-width:120px;border-bottom:1px solid #999;margin:0 3px}
+  .sig{display:flex;gap:40px;margin-top:48px}.sig div{flex:1;border-top:1px solid #111;padding-top:5px;font-size:11px;color:#555}
+  .n{margin-top:36px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:6px}
+  .hint{background:#e7f5ff;border:1px solid #a5d8ff;border-radius:8px;padding:10px 12px;font-size:11.5px;color:#1971c2;margin-bottom:18px}
+  @media print{.bar,.hint{display:none}body{margin:14mm auto;font-size:11pt}.fill{background:none;border-bottom:1px solid #111;border-radius:0}}
+</style>
+</head>
+<body>
+  <div class="bar">
+    <button onclick="window.print()">🖨 인쇄 / PDF 저장</button>
+    <span>노란 칸 = 사장님이 미리 채운 내용. 나머지 빈칸은 자필로 채우고 서명하세요. (이 창은 그냥 닫으면 됩니다)</span>
+  </div>
+  <div class="hint" id="hint"></div>
+
+  <h1 id="t1"></h1>
+  <h2 id="t2"></h2>
+
+  <div class="de"><b>Zwischen</b> / 사용자 <span class="fill">Hamafilm</span>, <span class="blank"></span> (Anschrift / 주소)</div>
+  <div class="de"><b>und</b> / 근로자 <span class="fill" id="name"></span>, geb. am <span class="blank"></span>, wohnhaft <span class="blank"></span></div>
+  <div class="kop">사용자(하마필름)와 근로자 사이에 아래와 같이 근로계약을 체결한다.</div>
+
+  <div id="body"></div>
+
+  <div class="sig">
+    <div>Ort, Datum, Unterschrift Arbeitgeber<br><span class="ko">장소·날짜·사용자 서명</span></div>
+    <div>Ort, Datum, Unterschrift Arbeitnehmer/in<br><span class="ko">장소·날짜·근로자 서명</span></div>
+  </div>
+  <p class="n">Muster — ersetzt keine Rechts- oder Steuerberatung. 참고용 양식이며 법률·세무 자문을 대체하지 않습니다. 서명본은 각자 1부씩 보관, 최소 2년.</p>
+
+<script>
+  const p = new URLSearchParams(location.search);
+  const type = p.get("type") === "mini" ? "mini" : "kurz";
+  const name = p.get("name") || "";
+  const wage = p.get("wage") || "";
+  const start = p.get("start") || "";
+  const hours = p.get("hours") || "";
+
+  const F = v => v ? `<span class="fill">${String(v).replace(/[<>&]/g,"")}</span>` : `<span class="blank"></span>`;
+  const B = (min=120) => `<span class="blank" style="min-width:${min}px"></span>`;
+  const set = (id, html) => document.getElementById(id).innerHTML = html;
+
+  set("name", name || "이름");
+  document.title = `Arbeitsvertrag ${name} (${type==="mini"?"Minijob":"kurzfristig"})`;
+
+  if (type === "mini") {
+    set("t1", "Arbeitsvertrag für geringfügig entlohnte Beschäftigte (Minijob)");
+    set("t2", "근로계약서 — 소액근로(미니잡)");
+    set("hint", "💼 미니잡 계약서입니다. 노란 칸(이름·시급·시작일)은 이미 채워져 있어요. 주소·생년월일·주당 시간만 확인해서 채우고 서명하세요.");
+  } else {
+    set("t1", "Arbeitsvertrag für kurzfristig Beschäftigte");
+    set("t2", "근로계약서 — 단기고용 (kurzfristige Beschäftigung)");
+    set("hint", "💼 단기고용 계약서입니다. 노란 칸(이름·시급·시작일)은 이미 채워져 있어요. 종료일·최대 근무일수(70일 이내)·신분(학생 등)을 확인해서 채우고 서명하세요.");
+  }
+
+  const cl = (de, ko) => `<div class="cl">${de}<span class="ko">${ko}</span></div>`;
+  const de = h => `<div class="de">${h}</div>`;
+  const ko = h => `<div class="kop">${h}</div>`;
+
+  let b = "";
+  if (type === "mini") {
+    b += cl("§ 1 Beginn und Tätigkeit", "계약 개시·업무");
+    b += de(`Das Arbeitsverhältnis beginnt am ${F(start)}. Der/Die Arbeitnehmer/in wird als Aushilfe im Fotostudio „Hamafilm“ beschäftigt (Kundenbetreuung, Fotoautomaten, Kasse/Tagesabschluss, Reinigung).`);
+    b += ko(`근로관계는 위 날짜에 시작되며, 근로자는 하마필름의 보조 인력(고객 응대·포토부스·캐셔/마감·청소)으로 근무한다.`);
+    b += cl("§ 2 Arbeitszeit", "근로시간");
+    b += de(`Die regelmäßige Arbeitszeit beträgt ${F(hours)} Stunden pro Woche nach Dienstplan.`);
+    b += ko(`주당 소정근로시간은 위와 같으며 근무표에 따른다. (미니잡: 월평균 603€ 이내)`);
+    b += cl("§ 3 Vergütung", "임금");
+    b += de(`Stundenlohn ${F(wage)} € brutto (mind. Mindestlohn 13,90 €). Auszahlung monatlich, ☐ in bar gegen Quittung ☐ per Überweisung. Monatliche Lohnabrechnung wird erstellt.`);
+    b += ko(`시급 ${wage?wage+"€":"__€"}(세전, 최저임금 13.90€ 이상). 월 단위 지급, 현금(수령확인서 서명) 또는 계좌이체 선택. 매월 급여명세서 발급.`);
+    b += cl("§ 4 Sozialversicherung", "사회보험");
+    b += de(`Anmeldung bei der Minijob-Zentrale; Pauschalabgaben trägt der Arbeitgeber. Rentenversicherung: ☐ Befreiung beantragt ☐ keine Befreiung.`);
+    b += ko(`미니잡센터에 신고, 정액 보험료는 사용자 부담. 연금 본인부담(3.6%)은 면제 신청 가능(체크).`);
+  } else {
+    b += cl("§ 1 Befristung und Tätigkeit", "계약기간·업무");
+    b += de(`Beginn am ${F(start)}, befristet bis ${B(120)} (max. 12 Monate). Höchstens ${B(60)} Arbeitstage (max. 70 Tage im Kalenderjahr). Tätigkeit als Aushilfe im Fotostudio „Hamafilm“ (Kundenbetreuung, Fotoautomaten, Kasse/Tagesabschluss, Reinigung).`);
+    b += ko(`시작일(위) ~ 종료일(기재, 최대 12개월). 계약기간 내 최대 근무일수 기재(연 70일 이내). 하마필름 보조 인력으로 근무.`);
+    b += cl("§ 2 Arbeitszeit", "근로시간");
+    b += de(`Einsatz an einzelnen Tagen nach Dienstplan, ca. ${B(40)} Tage/Monat mit je ca. ${B(40)} Stunden.`);
+    b += ko(`근무표에 따라 개별 일자에만 근무(예상 월 근무일수·1회 시간 기재).`);
+    b += cl("§ 3 Vergütung", "임금");
+    b += de(`Stundenlohn ${F(wage)} € brutto (mind. Mindestlohn 13,90 €). Auszahlung monatlich, ☐ in bar gegen Quittung ☐ per Überweisung. Monatliche Lohnabrechnung wird erstellt.`);
+    b += ko(`시급 ${wage?wage+"€":"__€"}(세전, 최저임금 13.90€ 이상). 월 단위 지급, 현금(수령확인서 서명) 또는 계좌이체. 매월 명세서 발급. (단기고용은 월 급여 상한 없음)`);
+    b += cl("§ 4 Status", "신분 확인");
+    b += de(`Keine berufsmäßige Ausübung. ☐ Schüler/in ☐ Student/in ☐ hauptberuflich bei ${B(80)}. Bereits ${B(40)} kurzfristige Arbeitstage in diesem Jahr.`);
+    b += ko(`생계용 직업이 아님(학생 등 체크). 올해 다른 단기고용 일수 기재 — 모두 합산되어 70일 초과 시 자격 상실.`);
+    b += cl("§ 5 Sozialversicherung", "사회보험");
+    b += de(`Sozialversicherungsfrei (kurzfristig). Anmeldung bei der Minijob-Zentrale (Personengruppe 110). Versteuerung: ☐ ELStAM ☐ pauschal 25 %.`);
+    b += ko(`단기고용은 사회보험 면제. 미니잡센터에 인원그룹 110으로 신고. 세금은 ELStAM(개인) 또는 정액 25% 선택(학생은 보통 ELStAM 유리).`);
+  }
+
+  // 공통 조항
+  b += cl("§ Urlaub", "연차휴가");
+  b += de(`Gesetzlicher Erholungsurlaub nach Bundesurlaubsgesetz, anteilig nach Arbeitstagen.`);
+  b += ko(`법정 유급휴가(근무일수 비례).`);
+  b += cl("§ Krankheit / Feiertage", "질병·공휴일");
+  b += de(`Entgeltfortzahlung im Krankheitsfall nach EFZG; AU unverzüglich melden, Attest spätestens am 4. Tag. Feiertagsvergütung nach § 2 EFZG.`);
+  b += ko(`질병 시 임금계속지급(진단서 늦어도 4일째). 근무 예정일이 공휴일이면 해당 임금 지급.`);
+  b += cl("§ Arbeitszeitaufzeichnung", "근무시간 기록");
+  b += de(`Aufzeichnung von Beginn/Ende/Dauer nach § 17 MiLoG (App-Dienstplan/Stundenzettel), Aufbewahrung 2 Jahre.`);
+  b += ko(`§17 MiLoG에 따라 근무시간 기록(앱 스케줄/기록표), 2년 보관.`);
+  b += cl("§ Verschwiegenheit / Kasse", "비밀유지·현금관리");
+  b += de(`Sorgfältige Kassenführung, Tagesabschluss nach Vorgabe, Fehlbeträge sofort melden. Verschwiegenheit über Umsätze, Kundendaten, Codes — auch nach Vertragsende. Rückgabe von Schlüsseln/Codes/Arbeitsmitteln bei Ende.`);
+  b += ko(`시재 관리·일일 마감·부족액 즉시 보고. 매출·고객정보·코드 비밀유지(퇴사 후에도). 종료 시 열쇠·코드·비품 반납.`);
+  b += cl("§ Schlussbestimmungen", "기타");
+  b += de(`Wesentliche Bedingungen i.S.d. Nachweisgesetzes. Änderungen in Textform. Salvatorische Klausel. Jede Partei erhält ein Exemplar.`);
+  b += ko(`근로조건명시법상 필수사항 포함. 변경은 서면. 일부 무효라도 나머지 유효. 각자 1부 보관.`);
+
+  set("body", b);
+</script>
+</body>
+</html>

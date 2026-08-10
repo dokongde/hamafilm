@@ -1,4 +1,4 @@
-import { fmtE } from "../lib/utils";
+import { fmtE, openVertrag } from "../lib/utils";
 import { PinChange } from "../components/modals/staff";
 import { KioskCodeSetting } from "../components/kiosk";
 import { AdminPushCard } from "../components/push-cards";
@@ -26,7 +26,8 @@ function StaffMgmtTab({ adminDevice, data, disableAdminDevice, enableAdminDevice
                 <td className="mn">€{fmtE(st.wage)}/h</td>
                 <td><span style={{display:"inline-block",width:16,height:16,borderRadius:"50%",background:st.color}} /></td>
                 <td>
-                  <button className="btn bs sm" onClick={()=>setModal({type:"addStaff", edit:st})}>수정</button>
+                  <button className="btn bs sm" title="이 직원 정보로 자동 채운 계약서 열기" onClick={()=>openVertrag(st)}>📄 계약서</button>
+                  <button className="btn bs sm" style={{marginLeft:3}} onClick={()=>setModal({type:"addStaff", edit:st})}>수정</button>
                   <button className="btn bd sm" style={{marginLeft:3}} onClick={async()=>{
                     if (!confirm("삭제?")) return;
                     await persist({

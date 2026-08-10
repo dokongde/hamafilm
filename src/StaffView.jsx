@@ -1,4 +1,4 @@
-import { hessenHols, DOW_KO, getSlots, dowKo, todayStr, curYM, getCarryIn, fmtE, nid, shiftHours } from "./lib/utils";
+import { hessenHols, DOW_KO, getSlots, dowKo, todayStr, curYM, getCarryIn, fmtE, nid, shiftHours, openVertrag } from "./lib/utils";
 import { GAS_URL, saveSession, clearSession, notifyLoginEvent } from "./data/gas";
 import { StaffPushCard } from "./components/push-cards";
 
@@ -437,8 +437,16 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
 
                   return (
                     <div style={{marginBottom:12}}>
-                      <div style={{fontSize:11,color:"#666",fontWeight:600,marginBottom:8}}>
-                        💰 내 급여 (시급 €{fmtE(wage)}/h)
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <span style={{fontSize:11,color:"#666",fontWeight:600}}>
+                          💰 내 급여 (시급 €{fmtE(wage)}/h)
+                        </span>
+                        <button
+                          onClick={()=>openVertrag(me)}
+                          title="내 근로계약서 (급여 자동 채움) 열기"
+                          style={{fontSize:10,fontWeight:700,padding:"5px 10px",border:"1px solid #a5d8ff",borderRadius:6,background:"#e7f5ff",color:"#1971c2",cursor:"pointer",fontFamily:"'Noto Sans KR',sans-serif"}}>
+                          📄 내 계약서
+                        </button>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1.5fr 1fr",gap:8}}>
                         {monthsData.map(m => (
