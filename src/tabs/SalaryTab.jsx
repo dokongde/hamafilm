@@ -22,37 +22,17 @@ function yearDayStats(shifts, staffId, year, today, kurzStart) {
   return { used: used.size, future: future.size, pace, yearEndEst };
 }
 
-// 수령확인서(Quittung) 인쇄 — 이름·기간·시간·금액 자동 채움, 서명만 받으면 됨
+// 수령확인서(Quittung) — 이름·기간·시간·금액을 quittung.html에 넘겨 새 창(브라우저)으로 연다.
+// window.open+document.write 방식은 PWA에서 닫기 버튼이 없어 갇히는 문제가 있어 실제 URL 방식 사용.
 function printQuittung(st, ym, hours, amount) {
-  const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
-  const w = window.open("", "_blank");
-  if (!w) { alert("팝업이 차단됐어요 — 팝업 허용 후 다시 눌러주세요"); return; }
-  const row = (de, ko2, val) =>
-    `<div class="r"><b>${de}</b> <span class="k">${ko2}</span> <span class="v">${val}</span></div>`;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Quittung ${esc(st.name)} ${ym}</title>
-  <style>
-    body{font-family:Calibri,'Malgun Gothic',sans-serif;max-width:640px;margin:40px auto;color:#111;font-size:14px}
-    h1{font-size:19px;margin:0 0 2px}h2{font-size:14px;color:#444;margin:0 0 22px;font-weight:600}
-    .r{margin:11px 0;border-bottom:1px dotted #bbb;padding-bottom:6px}
-    .k{color:#777;font-size:12px;margin:0 6px}.v{font-weight:600}
-    .st{margin:26px 0 6px}.ko{color:#666;font-size:12px;margin-bottom:36px}
-    .sig{display:flex;gap:40px;margin-top:52px}.sig div{flex:1;border-top:1px solid #111;padding-top:5px;font-size:11px;color:#555}
-    .n{margin-top:44px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:6px}
-    @media print{body{margin:16mm}}
-  </style></head><body>
-  <h1>Quittung über Barauszahlung des Arbeitsentgelts</h1><h2>임금(급여) 현금 수령 확인서</h2>
-  ${row("Arbeitgeber:", "사용자", "Hamafilm")}
-  ${row("Arbeitnehmer/in:", "근로자", esc(st.name))}
-  ${row("Abrechnungszeitraum:", "정산 기간", ym)}
-  ${row("Geleistete Arbeitsstunden:", "근무시간 합계", hours + " Std.")}
-  ${row("Ausgezahlter Betrag (netto):", "실지급액", "€ " + fmtE(amount))}
-  ${row("Betrag in Worten:", "금액 문자표기(자필)", "&nbsp;")}
-  <p class="st">Hiermit bestätige ich, den oben genannten Betrag heute in bar und vollständig erhalten zu haben.</p>
-  <p class="ko">본인은 위 금액을 오늘 현금으로 전액 수령하였음을 확인합니다.</p>
-  <div class="sig"><div>Ort, Datum / 장소, 날짜</div><div>Unterschrift Arbeitnehmer/in / 근로자 서명</div></div>
-  <p class="n">Muster — ersetzt keine Rechts- oder Steuerberatung. 참고용 양식입니다. 서명본은 최소 2년 보관.</p>
-  <script>window.print()</script></body></html>`);
-  w.document.close();
+  const q = new URLSearchParams({ name: st.name, ym, h: String(hours), amt: fmtE(amount) });
+  const a = document.createElement("a");
+  a.href = `/quittung.html?${q.toString()}`;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function SalaryTab({ data, persist, setModal, gSt, toast }) {
