@@ -64,6 +64,28 @@ function StaffMgmtTab({ adminDevice, data, disableAdminDevice, enableAdminDevice
         </div>
       </div>
 
+      <div className="card" style={{marginTop:12,border:"1px solid rgba(46,213,115,.3)"}}>
+        <div className="ct" style={{color:"#20a060"}}>📄 계약서·서류 양식 (독·한 병기)</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          {[
+            { f: "arbeitsvertrag-kurzfristig.docx", t: "📝 근로계약서 — 단기고용", s: "kurzfristig · 연 70일 이내 · 신규 3명용" },
+            { f: "arbeitsvertrag-minijob.docx",     t: "📝 근로계약서 — 미니잡",   s: "geringfügig · 월 603€ 이내 · 기존 2명용" },
+            { f: "lohnquittung.docx",               t: "🧾 현금 수령확인서",       s: "매회 서명 + 연간 지급대장" },
+            { f: "stundenzettel.docx",              t: "🗓 근무시간 기록표",       s: "월별 · § 17 MiLoG 기록 의무" },
+          ].map(d => (
+            <a key={d.f} href={`/contracts/${d.f}`} download
+               className="btn bs" style={{padding:"12px",textAlign:"left",lineHeight:1.4,textDecoration:"none",display:"block"}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>{d.t}</div>
+              <div style={{fontSize:10,color:"#666"}}>{d.s}</div>
+            </a>
+          ))}
+        </div>
+        <div style={{fontSize:10,color:"#888",padding:"6px 8px",background:"#f5f5f7",borderRadius:5,lineHeight:1.6}}>
+          💡 신규 3명: 단기고용 계약서 서명 → 미니잡센터에 <strong>인원그룹 110(kurzfristig)</strong>으로 등록 → 직원 수정에서 <strong>계약 시작일</strong> 입력(70일 카운트 시작).
+          급여는 매달 명세서 발급 + 현금 지급 시 수령확인서 서명. 양식은 참고용 — 첫 세팅은 세무사 확인 권장.
+        </div>
+      </div>
+
       <AdminPushCard toast={showToast} />
 
       <div className="card" style={{marginTop:12,border:"1px solid rgba(245,197,24,.2)"}}>

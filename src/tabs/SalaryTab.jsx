@@ -1,6 +1,59 @@
 import { useState } from "react";
-import { curYM, nextYM, getCarryIn, fmtE, shiftHours } from "../lib/utils";
+import { curYM, nextYM, getCarryIn, fmtE, shiftHours, todayStr } from "../lib/utils";
 import { GAS_URL } from "../data/gas";
+
+// ═══ 연간 근무일수 (단기고용 70일 한도 관리) ═══
+// 카운트는 실제 근무기록 기준 — 임의 제외 불가. 한도가 다가오면 미리 경고해서
+// 시프트를 나누거나 미니잡 전환을 결정할 수 있게 한다.
+const KURZ_LIMIT = 70;
+function yearDayStats(shifts, staffId, year, today, kurzStart) {
+  // kurzStart(공식 계약 시작일) 이전 근무는 카운트에서 제외 — 등록된 고용 기준으로 관리
+  const from = kurzStart && kurzStart > `${year}-01-01` ? kurzStart : `${year}-01-01`;
+  const used = new Set(), future = new Set();
+  (shifts || []).forEach(s => {
+    if (s.staffId !== staffId || !s.date.startsWith(year) || s.date < from) return;
+    (s.date <= today ? used : future).add(s.date);
+  });
+  const start = new Date(from);
+  const weeksElapsed = Math.max((new Date(today) - start) / 6048e5, 1);
+  const weeksRemain = Math.max((new Date(`${year}-12-31`) - new Date(today)) / 6048e5, 0);
+  const pace = used.size / weeksElapsed; // 일/주
+  const yearEndEst = used.size + Math.max(future.size, Math.round(pace * weeksRemain));
+  return { used: used.size, future: future.size, pace, yearEndEst };
+}
+
+// 수령확인서(Quittung) 인쇄 — 이름·기간·시간·금액 자동 채움, 서명만 받으면 됨
+function printQuittung(st, ym, hours, amount) {
+  const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  const w = window.open("", "_blank");
+  if (!w) { alert("팝업이 차단됐어요 — 팝업 허용 후 다시 눌러주세요"); return; }
+  const row = (de, ko2, val) =>
+    `<div class="r"><b>${de}</b> <span class="k">${ko2}</span> <span class="v">${val}</span></div>`;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Quittung ${esc(st.name)} ${ym}</title>
+  <style>
+    body{font-family:Calibri,'Malgun Gothic',sans-serif;max-width:640px;margin:40px auto;color:#111;font-size:14px}
+    h1{font-size:19px;margin:0 0 2px}h2{font-size:14px;color:#444;margin:0 0 22px;font-weight:600}
+    .r{margin:11px 0;border-bottom:1px dotted #bbb;padding-bottom:6px}
+    .k{color:#777;font-size:12px;margin:0 6px}.v{font-weight:600}
+    .st{margin:26px 0 6px}.ko{color:#666;font-size:12px;margin-bottom:36px}
+    .sig{display:flex;gap:40px;margin-top:52px}.sig div{flex:1;border-top:1px solid #111;padding-top:5px;font-size:11px;color:#555}
+    .n{margin-top:44px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:6px}
+    @media print{body{margin:16mm}}
+  </style></head><body>
+  <h1>Quittung über Barauszahlung des Arbeitsentgelts</h1><h2>임금(급여) 현금 수령 확인서</h2>
+  ${row("Arbeitgeber:", "사용자", "Hamafilm")}
+  ${row("Arbeitnehmer/in:", "근로자", esc(st.name))}
+  ${row("Abrechnungszeitraum:", "정산 기간", ym)}
+  ${row("Geleistete Arbeitsstunden:", "근무시간 합계", hours + " Std.")}
+  ${row("Ausgezahlter Betrag (netto):", "실지급액", "€ " + fmtE(amount))}
+  ${row("Betrag in Worten:", "금액 문자표기(자필)", "&nbsp;")}
+  <p class="st">Hiermit bestätige ich, den oben genannten Betrag heute in bar und vollständig erhalten zu haben.</p>
+  <p class="ko">본인은 위 금액을 오늘 현금으로 전액 수령하였음을 확인합니다.</p>
+  <div class="sig"><div>Ort, Datum / 장소, 날짜</div><div>Unterschrift Arbeitnehmer/in / 근로자 서명</div></div>
+  <p class="n">Muster — ersetzt keine Rechts- oder Steuerberatung. 참고용 양식입니다. 서명본은 최소 2년 보관.</p>
+  <script>window.print()</script></body></html>`);
+  w.document.close();
+}
 
 function SalaryTab({ data, persist, setModal, gSt, toast }) {
   const [salYM, setSalYM] = useState(curYM());
@@ -55,6 +108,23 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
     b.ym.localeCompare(a.ym) || a.staffId - b.staffId
   );
 
+  // 연간 근무일수 집계 (올해, 근무기록 있는 직원만)
+  const year = String(new Date().getFullYear());
+  const today = todayStr();
+  const dayRows = (data.staff||[])
+    .map(st => ({ st, ...yearDayStats(data.shifts, st.id, year, today, st.kurzStart) }))
+    .filter(r => r.used + r.future > 0)
+    .sort((a, b) => b.used - a.used);
+
+  // lexware/엑셀 입력용 복사 (탭 구분 → 붙여넣으면 표로 들어감)
+  const copyLexware = () => {
+    const head = "직원\t근무일\t시간\t시급(€)\t총액 브루토(€)";
+    const lines = visRows.map(r => `${r.st.name}\t${r.cnt}\t${r.h}\t${fmtE(r.st.wage)}\t${fmtE(r.pay)}`);
+    navigator.clipboard.writeText([head, ...lines].join("\n"))
+      .then(() => toast(`📋 ${salYM} 정산 ${visRows.length}명 복사됨 — lexware/엑셀에 붙여넣기`))
+      .catch(() => toast("❌ 복사 실패"));
+  };
+
   return (
     <div>
       <div className="fr" style={{marginBottom:12}}>
@@ -101,8 +171,53 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
           <div className="sb">{salYM}</div>
         </div>
       </div>
+      {dayRows.length > 0 ? (
+        <div className="card" style={{marginBottom:12, border:"1px solid rgba(245,197,24,.35)"}}>
+          <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>🗓 {year} 근무일수 — 단기고용 70일 관리</span>
+            <span style={{fontSize:10,color:"#888",fontWeight:400,textTransform:"none",letterSpacing:0}}>미니잡 직원은 해당 없음</span>
+          </div>
+          <table className="tbl">
+            <thead><tr><th>직원</th><th>사용</th><th>예정</th><th>페이스</th><th>연말 예상</th><th>상태</th></tr></thead>
+            <tbody>
+              {dayRows.map(r => {
+                const over = r.used >= KURZ_LIMIT;
+                const red = !over && r.used >= 67;
+                const ylw = !over && !red && r.used >= 60;
+                const estOver = r.yearEndEst > KURZ_LIMIT;
+                const col = over || red ? "#e03131" : ylw ? "#e8590c" : "#2f9e44";
+                return (
+                  <tr key={r.st.id}>
+                    <td>
+                      <span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong>
+                      {r.st.kurzStart ? <div style={{fontSize:9,color:"#999"}}>{r.st.kurzStart}부터</div> : null}
+                    </td>
+                    <td className="mn" style={{color:col,fontWeight:700}}>{r.used}/{KURZ_LIMIT}일</td>
+                    <td className="mn" style={{color:"#888"}}>{r.future > 0 ? `+${r.future}일` : "—"}</td>
+                    <td className="mn" style={{color:"#888"}}>주 {r.pace.toFixed(1)}회</td>
+                    <td className="mn" style={{color: estOver ? "#e03131" : "#888"}}>~{r.yearEndEst}일</td>
+                    <td>
+                      {over ? <span className="badge bred">🚨 70일 초과 — 미니잡 전환 필요</span>
+                        : red ? <span className="badge bred">🔴 임박 — 시프트 조절!</span>
+                        : ylw ? <span className="badge bylw">🟠 주의</span>
+                        : estOver ? <span className="badge bylw">⚠️ 이 페이스면 초과 예상</span>
+                        : <span className="badge bgrn">✅ 여유</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p style={{fontSize:10,color:"#999",margin:"6px 0 0"}}>
+            근무기록 기준 자동 집계 (다른 곳 단기 알바 일수는 별도 합산). 60일 🟠 · 67일 🔴 경고 — 넘을 것 같으면 시프트를 다른 직원에게 나누거나 해당 직원만 미니잡으로 전환하세요.
+          </p>
+        </div>
+      ) : null}
       <div className="card" style={{marginBottom:12}}>
-        <div className="ct">급여 상세</div>
+        <div className="ct" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span>급여 상세</span>
+          <button className="btn bs sm" onClick={copyLexware} title="탭 구분 텍스트로 복사 — lexware/엑셀에 붙여넣기">📋 lexware용 복사</button>
+        </div>
         <table className="tbl">
           <thead><tr><th>직원</th><th>시간</th><th>시급</th><th>급여</th><th>횟수</th></tr></thead>
           <tbody>
@@ -242,6 +357,13 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
                         title="월급 준비 푸시 알림 보내기"
                         onClick={()=>sendPayNotify(r.st, pay ? (pay.amount || finalPay) : finalPay)}>
                         {notifying === r.st.id ? "⏳ 전송중" : "💰 알림"}
+                      </button>
+                      <button
+                        className="btn bs sm"
+                        style={{marginTop:4,display:"block"}}
+                        title="현금 수령확인서 인쇄 (자동 채움)"
+                        onClick={()=>printQuittung(r.st, salYM, r.h, pay ? (pay.amount || finalPay) : finalPay)}>
+                        🧾 수령증
                       </button>
                     </td>
                   </tr>
