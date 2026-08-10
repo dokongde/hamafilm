@@ -16,6 +16,7 @@ function ReconTab({ data, persist }) {
   const [rcDate, setRcDate] = useState(defaultDate);
   const [noteInput, setNoteInput] = useState(""); // 그날 메모(재촬영·특이사항)
   const [admForm, setAdmForm] = useState({ kind: "reshoot", full: "", paid: "", note: "" }); // 관리자 사후 설명 입력폼
+  const [admEdit, setAdmEdit] = useState(null); // 수정 중인 설명 index (null = 새로 추가)
   const detailsRef = useRef(null); // 상세 접힘
   const admRef = useRef(null);     // 확인된 설명 추가 카드
   // 하루 카드의 "➕ 설명 추가" → 상세 펼치고 입력폼으로 스크롤
@@ -33,6 +34,8 @@ function ReconTab({ data, persist }) {
   useEffect(() => {
     const r = (data.sales||[]).find(s => s.date === rcDate);
     setNoteInput(r && r.note ? String(r.note) : "");
+    setAdmEdit(null);
+    setAdmForm({ kind: "reshoot", full: "", paid: "", note: "" });
   }, [rcDate]);
 
   const shiftDay = (delta) => { const d = new Date(rcDate); d.setDate(d.getDate()+delta); setRcDate(dstr(d)); };
@@ -149,11 +152,21 @@ function ReconTab({ data, persist }) {
     const full = parseFloat(admForm.full) || 0;
     const paid = parseFloat(admForm.paid) || 0;
     if (full <= 0) { alert("원가(€)를 입력하세요"); return; }
-    await patchRec({ adm: [...adm, { kind: admForm.kind, full, paid, note: admForm.note || "" }] });
+    const entry = { kind: admForm.kind, full, paid, note: admForm.note || "" };
+    await patchRec({ adm: admEdit != null ? adm.map((r, i) => i === admEdit ? entry : r) : [...adm, entry] });
     setAdmForm({ kind: "reshoot", full: "", paid: "", note: "" });
+    setAdmEdit(null);
   };
+  const startEditAdm = (i) => {
+    const r = adm[i];
+    setAdmForm({ kind: r.kind || "reshoot", full: r.full != null ? String(r.full) : "", paid: r.paid != null ? String(r.paid) : "", note: r.note || "" });
+    setAdmEdit(i);
+  };
+  const cancelEditAdm = () => { setAdmEdit(null); setAdmForm({ kind: "reshoot", full: "", paid: "", note: "" }); };
   const delAdm = async (idx) => {
     await patchRec({ adm: adm.filter((_, i) => i !== idx) });
+    if (admEdit === idx) cancelEditAdm();
+    else if (admEdit != null && idx < admEdit) setAdmEdit(admEdit - 1);
   };
 
   // ===== 사진 구멍 & 미설명 — 귀속 계산은 attributeGap으로 일원화 (매출/통계 탭과 동일 값) =====
@@ -226,11 +239,9 @@ function ReconTab({ data, persist }) {
                 </>
               ) : <span style={{color:"#2f9e44"}}>✅ 전부 설명됨 (구멍 €{fmtE(photoGap)})</span>}
               color={gap.nurak>5?"#e03131":(gap.nurak>1?"#e8590c":"#2f9e44")} strong />
-            {unexplained > 0 ? (
-              <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 4px 2px"}}>
-                <button className="btn bg2 sm" onClick={goAddExplain}>➕ 설명 추가</button>
-              </div>
-            ) : null}
+            <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 4px 2px"}}>
+              <button className="btn bg2 sm" onClick={goAddExplain}>➕ 설명 추가·수정</button>
+            </div>
           </>
         ) : (
           <Row label="❓ 미설명" main="야간 집계 대기" color="#999"
@@ -405,18 +416,23 @@ function ReconTab({ data, persist }) {
 
           {/* 관리자 사후 설명 추가 (adm) */}
           <div ref={admRef} className="card" style={{marginBottom:10}}>
-            <div style={{fontWeight:700,color:"#2f9e44",marginBottom:4,fontSize:13}}>➕ 확인된 설명 추가 (관리자)</div>
+            <div style={{fontWeight:700,color:"#2f9e44",marginBottom:4,fontSize:13}}>➕ 확인된 설명 추가·수정 (관리자)</div>
             <div style={{fontSize:10,color:"#888",marginBottom:8}}>
               직원이 퇴근 때 리포트를 못 남긴 재촬영·무료쿠폰을 나중에 확인했으면 여기에 추가하세요 — <strong>설명됨</strong>에 합산되어 누락이 줄어듭니다.
+              이미 넣은 설명은 <strong>수정</strong> 버튼으로 고칠 수 있어요.
             </div>
             {adm.length ? adm.map((r, i) => (
-              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,fontSize:11,color:"#555",padding:"3px 0",borderBottom:"1px solid #f5f5f5"}}>
+              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,fontSize:11,color:"#555",padding:"3px 0",borderBottom:"1px solid #f5f5f5",background: admEdit===i ? "rgba(77,171,247,.08)" : "transparent"}}>
                 <span>
                   {reportKindLabel(r.kind)} · €{fmtE(r.full)}→€{fmtE(r.paid)}
                   <span style={{color:"#2f9e44"}}> (설명 €{fmtE(Math.max((Number(r.full)||0)-(Number(r.paid)||0),0))})</span>
                   {r.note ? ` · ${r.note}` : ""}
+                  {admEdit===i ? <span style={{color:"#1971c2",fontWeight:700}}> · 수정 중…</span> : null}
                 </span>
-                <button className="btn bd sm" onClick={()=>delAdm(i)}>삭제</button>
+                <span style={{display:"flex",gap:4,flexShrink:0}}>
+                  <button className="btn bs sm" onClick={()=>startEditAdm(i)}>수정</button>
+                  <button className="btn bd sm" onClick={()=>delAdm(i)}>삭제</button>
+                </span>
               </div>
             )) : null}
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
@@ -426,7 +442,8 @@ function ReconTab({ data, persist }) {
               <input type="number" placeholder="원가 €" value={admForm.full} onChange={e=>setAdmForm({...admForm, full:e.target.value})} style={{width:72,fontSize:12}} />
               <input type="number" placeholder="받은 €" value={admForm.paid} onChange={e=>setAdmForm({...admForm, paid:e.target.value})} style={{width:72,fontSize:12}} />
               <input placeholder="메모" value={admForm.note} onChange={e=>setAdmForm({...admForm, note:e.target.value})} style={{width:130,fontSize:12}} />
-              <button className="btn bp sm" onClick={addAdm}>추가</button>
+              <button className="btn bp sm" onClick={addAdm}>{admEdit != null ? "저장" : "추가"}</button>
+              {admEdit != null ? <button className="btn bs sm" onClick={cancelEditAdm}>취소</button> : null}
             </div>
           </div>
 
