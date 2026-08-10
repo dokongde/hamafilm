@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { curYM, nextYM, getCarryIn, fmtE, shiftHours, todayStr } from "../lib/utils";
 import { GAS_URL } from "../data/gas";
 
@@ -38,6 +38,7 @@ function printQuittung(st, ym, hours, amount) {
 function SalaryTab({ data, persist, setModal, gSt, toast }) {
   const [salYM, setSalYM] = useState(curYM());
   const [notifying, setNotifying] = useState(null); // 발송 중인 staffId
+  const [expanded, setExpanded] = useState(null); // 지급 관리에서 상세 펼친 staffId
 
   // 💰 월급 준비 푸시 알림 (GAS notifyPay)
   const sendPayNotify = async (st, amount) => {
@@ -247,8 +248,6 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
               <tr>
                 <th>직원</th>
                 <th>지급액</th>
-                <th>방법</th>
-                <th>지급일</th>
                 <th>상태</th>
                 <th></th>
               </tr>
@@ -275,87 +274,78 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
                 // 표시 지급액: 확정값 기준(명세서대로 지급), 레코드 없으면 스케줄±carry-in
                 const finalPay = myRec ? baseConfirm : (actualBase + ci.amount);
                 const carryOut = (myRec && myRec.carryToNext != null) ? myRec.carryToNext : null;
+                const isOpen = expanded === r.st.id;
                 return (
-                  <tr key={r.st.id}>
-                    <td>
-                      <span className="dot" style={{background:r.st.color}} />
-                      <strong>{r.st.name}</strong>
-                    </td>
-                    <td className="mn" style={{color:paid?"#888":"#1971c2",fontWeight:600,textDecoration:paid?"line-through":"none"}}>
-                      €{pay ? fmtE(pay.amount || finalPay) : fmtE(finalPay)}
-                      {(hasActual || adjustment || carryOut != null) ? (
-                        <div style={{fontSize:10,fontWeight:400,color:"#888",marginTop:2,lineHeight:1.6}}>
+                  <Fragment key={r.st.id}>
+                    <tr onClick={()=>setExpanded(isOpen ? null : r.st.id)} style={{cursor:"pointer"}}>
+                      <td>
+                        <span className="dot" style={{background:r.st.color}} />
+                        <strong>{r.st.name}</strong>
+                      </td>
+                      <td className="mn" style={{color:paid?"#888":"#1971c2",fontWeight:600,textDecoration:paid?"line-through":"none"}}>
+                        €{pay ? fmtE(pay.amount || finalPay) : fmtE(finalPay)}
+                        <span style={{fontSize:9,color:"#bbb",marginLeft:5}}>{isOpen ? "▲" : "▼"}</span>
+                      </td>
+                      <td>
+                        {paid ? (
+                          <span className="badge bgrn">지급완료</span>
+                        ) : ready ? (
+                          <span className="badge bylw">준비완료</span>
+                        ) : (
+                          <span className="badge bred">미지급</span>
+                        )}
+                      </td>
+                      <td style={{whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+                        <button
+                          className={"btn " + (paid ? "bs" : "bp") + " sm"}
+                          onClick={()=>setModal({
+                            type:"editPayment",
+                            staffId:r.st.id,
+                            ym:salYM,
+                            defaultAmount:finalPay,
+                            baseAmount: r.pay,
+                            settleNow: hasActual ? settleNow : null,
+                            carryOut,
+                            adjustment: adjustment ? {
+                              isAdd, amount: adjAmt, desc: adjustment.adjDesc
+                            } : null
+                          })}>
+                          {paid ? "수정" : ready ? "완료" : "지급"}
+                        </button>
+                        <button
+                          className="btn bs sm"
+                          style={{marginLeft:3}}
+                          disabled={notifying === r.st.id}
+                          title="월급 준비 푸시 알림 보내기"
+                          onClick={()=>sendPayNotify(r.st, pay ? (pay.amount || finalPay) : finalPay)}>
+                          {notifying === r.st.id ? "전송중" : "알림"}
+                        </button>
+                        <button
+                          className="btn bs sm"
+                          style={{marginLeft:3}}
+                          title="현금 수령확인서 인쇄 (자동 채움)"
+                          onClick={()=>printQuittung(r.st, salYM, r.h, pay ? (pay.amount || finalPay) : finalPay)}>
+                          수령증
+                        </button>
+                      </td>
+                    </tr>
+                    {isOpen ? (
+                      <tr>
+                        <td colSpan={4} style={{background:"#f8f9fa",fontSize:11,color:"#666",lineHeight:1.9,padding:"8px 12px"}}>
+                          <div>방법 {pay && pay.method ? pay.method : "—"} · 지급일 {pay && pay.paidDate ? pay.paidDate : "—"} · 근무 {r.h}h {r.cnt}회 (기본 €{fmtE(r.pay)})</div>
                           {hasActual ? (
                             <div>확정 <strong style={{color:"#4ecdc4"}}>€{fmtE(baseConfirm)}</strong> · 실정산 <strong style={{color:"#1971c2"}}>€{fmtE(settleNow)}</strong></div>
-                          ) : adjustment ? (
-                            <div>기본 €{fmtE(r.pay)} {isAdd ? "+" : "-"} €{fmtE(adjAmt)}
-                              <span style={{color: isAdd ? "#20a060" : "#e63946", marginLeft:4, fontSize:9}}>{isAdd ? "(추가지급)" : "(차감)"}</span>
-                            </div>
                           ) : null}
                           {adjustment ? (
-                            <div>↪ 지난달 {isAdd?"추가":"차감"} {isAdd?"+":"-"}€{fmtE(adjAmt)} 반영</div>
+                            <div>지난달 {isAdd?"추가지급":"차감"} <span style={{color: isAdd ? "#20a060" : "#e63946",fontWeight:600}}>{isAdd?"+":"-"}€{fmtE(adjAmt)}</span> 반영{adjustment.adjDesc ? ` · ${adjustment.adjDesc}` : ""}</div>
                           ) : null}
                           {carryOut != null && Math.abs(carryOut) > 0 ? (
-                            <div>↩ {nextYM(salYM)} 이월 <strong style={{color: carryOut>=0 ? "#e63946" : "#20a060"}}>{carryOut>=0 ? "-" : "+"}€{fmtE(Math.abs(carryOut))}</strong></div>
+                            <div>{nextYM(salYM)} 이월 <span style={{color: carryOut>=0 ? "#e63946" : "#20a060",fontWeight:600}}>{carryOut>=0 ? "-" : "+"}€{fmtE(Math.abs(carryOut))}</span></div>
                           ) : null}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td>
-                      {pay && pay.method ? (
-                        <span className={"badge " + (
-                          pay.method==="회사통장" ? "bblu" :
-                          pay.method==="현금" ? "bgrn" :
-                          pay.method==="계좌이체" ? "bprp" : "bgry"
-                        )}>{pay.method}</span>
-                      ) : <span style={{color:"#bbb",fontSize:11}}>—</span>}
-                    </td>
-                    <td className="mn" style={{fontSize:11,color:paid?"#666":"#bbb"}}>
-                      {pay && pay.paidDate ? pay.paidDate : "—"}
-                    </td>
-                    <td>
-                      {paid ? (
-                        <span className="badge bgrn">지급완료</span>
-                      ) : ready ? (
-                        <span className="badge bylw">준비완료</span>
-                      ) : (
-                        <span className="badge bred">미지급</span>
-                      )}
-                    </td>
-                    <td style={{whiteSpace:"nowrap"}}>
-                      <button
-                        className={"btn " + (paid ? "bs" : "bp") + " sm"}
-                        onClick={()=>setModal({
-                          type:"editPayment",
-                          staffId:r.st.id,
-                          ym:salYM,
-                          defaultAmount:finalPay,
-                          baseAmount: r.pay,
-                          settleNow: hasActual ? settleNow : null,
-                          carryOut,
-                          adjustment: adjustment ? {
-                            isAdd, amount: adjAmt, desc: adjustment.adjDesc
-                          } : null
-                        })}>
-                        {paid ? "수정" : ready ? "완료" : "지급"}
-                      </button>
-                      <button
-                        className="btn bs sm"
-                        style={{marginLeft:3}}
-                        disabled={notifying === r.st.id}
-                        title="월급 준비 푸시 알림 보내기"
-                        onClick={()=>sendPayNotify(r.st, pay ? (pay.amount || finalPay) : finalPay)}>
-                        {notifying === r.st.id ? "전송중" : "알림"}
-                      </button>
-                      <button
-                        className="btn bs sm"
-                        style={{marginLeft:3}}
-                        title="현금 수령확인서 인쇄 (자동 채움)"
-                        onClick={()=>printQuittung(r.st, salYM, r.h, pay ? (pay.amount || finalPay) : finalPay)}>
-                        수령증
-                      </button>
-                    </td>
-                  </tr>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               })}
             </tbody>
