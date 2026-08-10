@@ -160,19 +160,26 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
           })}
         </div>
       ) : null}
-      <div className="g3" style={{marginBottom:8,gap:6}}>
-        {visRows.map(r => (
-          <div key={r.st.id} className="chip">
-            <div className="lb"><span className="dot" style={{background:r.st.color}} />{r.st.name}</div>
-            <div className="vl">€{fmtE(r.pay)}</div>
-            <div className="sb">{r.h}h · {r.cnt}회</div>
-          </div>
-        ))}
-        <div className="chip" style={{border:"1px solid #f5c518"}}>
-          <div className="lb">전체</div>
-          <div className="vl">€{fmtE(total)}</div>
-          <div className="sb">{salYM}</div>
-        </div>
+      <div className="card">
+        <table className="tbl">
+          <thead><tr><th>직원</th><th>급여</th><th>시간</th><th>횟수</th></tr></thead>
+          <tbody>
+            {visRows.map(r => (
+              <tr key={r.st.id}>
+                <td><span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong></td>
+                <td className="mn" style={{fontWeight:600}}>€{fmtE(r.pay)}</td>
+                <td style={{color:"#888"}}>{r.h}h</td>
+                <td style={{color:"#888"}}>{r.cnt}회</td>
+              </tr>
+            ))}
+            <tr style={{borderTop:"2px solid #e0e0e0"}}>
+              <td style={{fontWeight:700}}>전체 ({salYM})</td>
+              <td className="mn" style={{fontWeight:700,color:"#b8860b"}}>€{fmtE(total)}</td>
+              <td style={{color:"#888"}}>{visRows.reduce((t,r)=>t+r.h,0)}h</td>
+              <td style={{color:"#888"}}>{visRows.reduce((t,r)=>t+r.cnt,0)}회</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       {dayRows.length > 0 ? (
         <div className="card" style={{border:"1px solid rgba(245,197,24,.35)"}}>
