@@ -233,7 +233,7 @@ function ReconTab({ data, persist }) {
             <Row label="❓ 미설명" main={`€${fmtE(unexplained)}`}
               sub={unexplained > 0 ? (
                 <>
-                  <div>사진구멍 €{fmtE(photoGap)} − 설명됨 €{fmtE(explainedTotal)}</div>
+                  <div>사진구멍 €{fmtE(photoGap)} − 설명됨 €{fmtE(explainedTotal)}{explainedTotal>0 ? ` (리포트 €${fmtE(reportExplainedTotal)}${admSum>0?` + 관리자 €${fmtE(admSum)}`:""}${naaxOverflow>0?` + 나약스 €${fmtE(naaxOverflow)}`:""}${markedUnSum>0?` + 과거 €${fmtE(markedUnSum)}`:""})` : ""}</div>
                   {noReport ? <div style={{color:"#e8590c",fontWeight:700,marginTop:2}}>⚠️ 직원 리포트 0건 — 퇴근 때 설명을 안 남겼을 수 있어요</div> : null}
                   {gap.sukking > 0 ? <div style={{marginTop:2}}><span style={{color:"#e03131",fontWeight:700}}>누락 €{fmtE(gap.nurak)}</span> · 인정몫 €{fmtE(gap.sukking)}{gap.skMade>0?" (신고 확정)":" (추정)"}</div> : null}
                 </>
@@ -400,6 +400,7 @@ function ReconTab({ data, persist }) {
             {checkShifts.length ? (
               <div style={{padding:"8px 10px",background:"#f5f5f7",borderRadius:8}}>
                 <div style={{fontSize:11,fontWeight:700,color:"#1971c2",marginBottom:4}}>🔎 퇴근 시 실시간 대조 (직원이 본 값)</div>
+                <div style={{fontSize:10,color:"#888",marginBottom:4}}>⏸ 퇴근 시점 스냅샷 — 나중에 추가한 관리자 설명은 여기엔 반영되지 않아요 (위 하루 카드가 최신).</div>
                 {checkShifts.map((s, i) => {
                   const u = Number(s.checkUnexplained)||0;
                   return (
