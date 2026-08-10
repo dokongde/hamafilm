@@ -145,27 +145,23 @@ function buildContract() {
     de("Die Aufnahme oder Beendigung weiterer Beschäftigungen ist dem Arbeitgeber unverzüglich mitzuteilen, da mehrere Minijobs zusammengerechnet werden."),
     ko("근로자는 다른 근로관계 유무를 표시하고, 이후 변동이 생기면 지체 없이 사용자에게 알린다. 여러 개의 미니잡은 합산되어 한도를 초과하면 미니잡 자격이 상실되기 때문이다.", { last: true }),
 
-    clause("§ 7 Urlaub", "§ 7 연차휴가"),
-    de(`Der/Die Arbeitnehmer/in hat Anspruch auf ${blank(4)} Arbeitstage bezahlten Erholungsurlaub pro Kalenderjahr, mindestens jedoch auf den gesetzlichen Mindesturlaub nach dem Bundesurlaubsgesetz (anteilig nach wöchentlichen Arbeitstagen).`),
-    ko("근로자는 연간 기재 일수의 유급휴가를 가지며, 최소한 독일 연방휴가법상 법정 최소휴가(주당 근무일수에 비례) 이상이어야 한다. 미니잡도 유급휴가 대상이다.", { last: true }),
+    clause("§ 7 Feiertage", "§ 7 공휴일"),
+    de("Für Arbeitszeit, die infolge eines gesetzlichen Feiertags ausfällt, gilt die gesetzliche Regelung (§ 2 EFZG)."),
+    ko("근무 예정일이 법정 공휴일이라 근무가 없게 된 경우 법정 규정(§ 2 EFZG)에 따른다.", { last: true }),
 
-    clause("§ 8 Arbeitsverhinderung, Krankheit und Feiertage", "§ 8 결근·질병·공휴일"),
-    de("Bei Arbeitsunfähigkeit infolge Krankheit besteht Anspruch auf Entgeltfortzahlung nach dem Entgeltfortzahlungsgesetz (bis zu sechs Wochen). Die Arbeitsunfähigkeit ist dem Arbeitgeber unverzüglich mitzuteilen; eine ärztliche Bescheinigung ist spätestens am vierten Kalendertag vorzulegen, auf Verlangen früher. Für Arbeitszeit, die infolge eines gesetzlichen Feiertags ausfällt, wird das Entgelt nach § 2 EFZG fortgezahlt."),
-    ko("질병으로 일할 수 없는 경우 독일 임금계속지급법에 따라 최대 6주까지 유급 병가가 인정된다(미니잡 포함). 아프면 즉시 알리고, 늦어도 4일째에는 진단서를 제출한다(사용자가 요구하면 더 일찍). 근무 예정일이 법정 공휴일이라 근무가 없게 된 경우에도 해당 임금은 지급된다.", { last: true }),
-
-    clause("§ 9 Arbeitszeitaufzeichnung", "§ 9 근무시간 기록"),
+    clause("§ 8 Arbeitszeitaufzeichnung", "§ 8 근무시간 기록"),
     de("Beginn, Ende und Dauer der täglichen Arbeitszeit werden gemäß § 17 MiLoG spätestens sieben Tage nach der Arbeitsleistung aufgezeichnet (Dienstplan-/Kassensystem des Arbeitgebers bzw. Stundenzettel). Der/Die Arbeitnehmer/in wirkt an der Aufzeichnung mit und bestätigt sie auf Verlangen durch Unterschrift."),
     ko("독일 최저임금법 § 17에 따라 매일의 근무 시작·종료·시간을 늦어도 7일 이내에 기록해야 한다(사용자의 스케줄/포스 시스템 또는 근무시간 기록표 사용). 근로자는 기록에 협조하고 요청 시 서명으로 확인한다.", { last: true }),
 
-    clause("§ 10 Kassenführung, Verschwiegenheit und Eigentum", "§ 10 현금 관리·비밀유지·비품"),
+    clause("§ 9 Kassenführung, Verschwiegenheit und Eigentum", "§ 9 현금 관리·비밀유지·비품"),
     de("Der/Die Arbeitnehmer/in behandelt die Kasse mit Sorgfalt, führt den Tagesabschluss nach den Vorgaben des Arbeitgebers durch und meldet Fehlbeträge oder Unregelmäßigkeiten unverzüglich. Über Geschäfts- und Betriebsgeheimnisse (u. a. Umsätze, Kundendaten, Zugangscodes) ist Stillschweigen zu bewahren, auch nach Beendigung des Arbeitsverhältnisses. Überlassene Schlüssel, Zugangscodes und Arbeitsmittel sind bei Beendigung zurückzugeben."),
     ko("근로자는 시재(현금)를 주의 깊게 관리하고 사용자 지침에 따라 일일 마감을 수행하며, 부족액·이상 발견 시 즉시 보고한다. 매출, 고객정보, 출입코드 등 영업비밀은 재직 중은 물론 퇴사 후에도 비밀로 유지한다. 지급받은 열쇠·코드·비품은 계약 종료 시 반납한다.", { last: true }),
 
-    clause("§ 11 Kündigung", "§ 11 계약 해지(해고·사직)"),
+    clause("§ 10 Kündigung", "§ 10 계약 해지(해고·사직)"),
     de("Nach Ablauf der Probezeit gelten die gesetzlichen Kündigungsfristen des § 622 BGB (Grundfrist: vier Wochen zum Fünfzehnten oder zum Ende eines Kalendermonats). Jede Kündigung bedarf der Schriftform (§ 623 BGB)."),
     ko("수습기간 이후에는 독일 민법 § 622의 법정 예고기간(기본: 4주 전 통보, 매월 15일 또는 말일자)이 적용된다. 해지는 반드시 서면(자필 서명)으로 해야 하며, 문자·이메일 통보는 효력이 없다.", { last: true }),
 
-    clause("§ 12 Schlussbestimmungen", "§ 12 기타 조항"),
+    clause("§ 11 Schlussbestimmungen", "§ 11 기타 조항"),
     de("Dieser Vertrag enthält die wesentlichen Arbeitsbedingungen im Sinne des Nachweisgesetzes. Änderungen und Ergänzungen bedürfen der Textform. Sollten einzelne Bestimmungen unwirksam sein, bleibt der Vertrag im Übrigen wirksam; anstelle der unwirksamen Bestimmung gilt die gesetzliche Regelung. Jede Partei erhält ein unterschriebenes Exemplar."),
     ko("이 계약서는 독일 근로조건명시법(Nachweisgesetz)상 필수 기재사항을 포함한다. 계약의 변경·보충은 텍스트 형식(서면·이메일 등)으로 한다. 일부 조항이 무효라도 나머지는 유효하며, 무효 조항은 법정 규정으로 대체된다. 계약서는 2부 작성하여 각자 1부씩 보관한다.", { last: true }),
 
@@ -230,27 +226,23 @@ function buildContractKurzfristig() {
     de(`Die Versteuerung erfolgt:  ☐ individuell nach den elektronischen Lohnsteuerabzugsmerkmalen (ELStAM)   ☐ pauschal mit 25 % (§ 40a EStG) zu Lasten des ${blank(16)}.`),
     ko("단기고용은 사회보험(연금·건강·요양·실업보험료)이 면제된다. 사용자는 미니잡센터에 신고(인원그룹 110)하고 법정 분담금과 산재보험을 부담한다. 세금은 근로자의 개인 세금정보(ELStAM)로 처리하거나(학생은 보통 실질 0%), 정액 25%로 처리할 수 있다(부담 주체 기재).", { last: true }),
 
-    clause("§ 6 Urlaub", "§ 6 휴가"),
-    de("Der/Die Arbeitnehmer/in hat Anspruch auf den gesetzlichen Erholungsurlaub nach dem Bundesurlaubsgesetz, anteilig nach Beschäftigungsdauer und Arbeitstagen. Nicht genommener Urlaub wird bei Vertragsende abgegolten."),
-    ko("단기고용 근로자도 근무기간·근무일수에 비례한 법정 유급휴가가 발생하며, 사용하지 못한 휴가는 계약 종료 시 수당으로 정산한다.", { last: true }),
+    clause("§ 6 Feiertage", "§ 6 공휴일"),
+    de("Für Arbeitszeit, die infolge eines gesetzlichen Feiertags ausfällt, gilt die gesetzliche Regelung (§ 2 EFZG)."),
+    ko("근무 예정일이 법정 공휴일이어서 근무가 없게 된 경우 법정 규정(§ 2 EFZG)에 따른다.", { last: true }),
 
-    clause("§ 7 Krankheit und Feiertage", "§ 7 질병·공휴일"),
-    de("Anspruch auf Entgeltfortzahlung im Krankheitsfall besteht nach vierwöchiger ununterbrochener Dauer des Arbeitsverhältnisses (§ 3 Abs. 3 EFZG). Die Arbeitsunfähigkeit ist unverzüglich mitzuteilen; eine ärztliche Bescheinigung ist spätestens am vierten Kalendertag vorzulegen, auf Verlangen früher. Für Arbeitszeit, die infolge eines gesetzlichen Feiertags ausfällt, wird das Entgelt nach § 2 EFZG fortgezahlt."),
-    ko("유급 병가는 근로관계가 중단 없이 4주 지속된 후부터 인정된다(임금계속지급법 § 3 ③). 아프면 즉시 알리고 늦어도 4일째에는 진단서를 제출한다. 근무 예정일이 법정 공휴일이어서 근무가 없게 된 경우 해당 임금은 지급된다.", { last: true }),
-
-    clause("§ 8 Arbeitszeitaufzeichnung", "§ 8 근무시간 기록"),
+    clause("§ 7 Arbeitszeitaufzeichnung", "§ 7 근무시간 기록"),
     de("Beginn, Ende und Dauer der täglichen Arbeitszeit werden gemäß § 17 MiLoG spätestens sieben Tage nach der Arbeitsleistung aufgezeichnet (Dienstplan-/Kassensystem des Arbeitgebers bzw. Stundenzettel). Der/Die Arbeitnehmer/in wirkt an der Aufzeichnung mit und bestätigt sie auf Verlangen durch Unterschrift. Die Einsatztage werden zusätzlich fortlaufend gezählt."),
     ko("최저임금법 § 17에 따라 일별 근무 시작·종료·시간을 7일 이내에 기록한다(스케줄/포스 시스템 또는 근무시간 기록표). 연 70일 한도 관리를 위해 근무일수도 계속 집계한다.", { last: true }),
 
-    clause("§ 9 Kassenführung, Verschwiegenheit und Eigentum", "§ 9 현금 관리·비밀유지·비품"),
+    clause("§ 8 Kassenführung, Verschwiegenheit und Eigentum", "§ 8 현금 관리·비밀유지·비품"),
     de("Der/Die Arbeitnehmer/in behandelt die Kasse mit Sorgfalt, führt den Tagesabschluss nach den Vorgaben des Arbeitgebers durch und meldet Fehlbeträge oder Unregelmäßigkeiten unverzüglich. Über Geschäfts- und Betriebsgeheimnisse (u. a. Umsätze, Kundendaten, Zugangscodes) ist Stillschweigen zu bewahren, auch nach Beendigung des Arbeitsverhältnisses. Überlassene Schlüssel, Zugangscodes und Arbeitsmittel sind bei Beendigung zurückzugeben."),
     ko("근로자는 시재(현금)를 주의 깊게 관리하고 사용자 지침에 따라 일일 마감을 수행하며, 부족액·이상 발견 시 즉시 보고한다. 매출, 고객정보, 출입코드 등 영업비밀은 퇴사 후에도 비밀로 유지하고, 지급받은 열쇠·코드·비품은 계약 종료 시 반납한다.", { last: true }),
 
-    clause("§ 10 Kündigung", "§ 10 계약 해지"),
+    clause("§ 9 Kündigung", "§ 9 계약 해지"),
     de("Das Arbeitsverhältnis endet mit Ablauf der Befristung, ohne dass es einer Kündigung bedarf. Das Recht zur ordentlichen Kündigung mit den gesetzlichen Fristen (§ 622 BGB) wird beiderseits vorbehalten. Jede Kündigung bedarf der Schriftform (§ 623 BGB)."),
     ko("계약은 기재된 종료일이 지나면 별도 통보 없이 종료된다. 그 전이라도 양 당사자는 독일 민법 § 622의 법정 예고기간을 두고 해지할 수 있으며, 해지는 반드시 서면(자필 서명)으로 한다.", { last: true }),
 
-    clause("§ 11 Schlussbestimmungen", "§ 11 기타 조항"),
+    clause("§ 10 Schlussbestimmungen", "§ 10 기타 조항"),
     de("Dieser Vertrag enthält die wesentlichen Arbeitsbedingungen im Sinne des Nachweisgesetzes. Änderungen und Ergänzungen bedürfen der Textform. Sollten einzelne Bestimmungen unwirksam sein, bleibt der Vertrag im Übrigen wirksam; anstelle der unwirksamen Bestimmung gilt die gesetzliche Regelung. Jede Partei erhält ein unterschriebenes Exemplar."),
     ko("이 계약서는 독일 근로조건명시법상 필수 기재사항을 포함한다. 변경·보충은 텍스트 형식으로 하며, 일부 조항이 무효라도 나머지는 유효하다. 계약서는 2부 작성하여 각자 1부씩 보관한다.", { last: true }),
 

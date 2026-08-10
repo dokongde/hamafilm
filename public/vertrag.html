@@ -107,13 +107,10 @@
     b += ko(`단기고용은 사회보험 면제. 미니잡센터에 인원그룹 110으로 신고. 세금은 ELStAM(개인) 또는 정액 25% 선택(학생은 보통 ELStAM 유리).`);
   }
 
-  // 공통 조항
-  b += cl("§ Urlaub", "연차휴가");
-  b += de(`Gesetzlicher Erholungsurlaub nach Bundesurlaubsgesetz, anteilig nach Arbeitstagen.`);
-  b += ko(`법정 유급휴가(근무일수 비례).`);
-  b += cl("§ Krankheit / Feiertage", "질병·공휴일");
-  b += de(`Entgeltfortzahlung im Krankheitsfall nach EFZG; AU unverzüglich melden, Attest spätestens am 4. Tag. Feiertagsvergütung nach § 2 EFZG.`);
-  b += ko(`질병 시 임금계속지급(진단서 늦어도 4일째). 근무 예정일이 공휴일이면 해당 임금 지급.`);
+  // 공통 조항 (연차·병가 조항은 계약서에서 생략 — 법정 권리는 그대로 유효)
+  b += cl("§ Feiertage", "공휴일");
+  b += de(`Für Arbeitszeit, die infolge eines gesetzlichen Feiertags ausfällt, gilt § 2 EFZG.`);
+  b += ko(`근무 예정일이 법정 공휴일이라 근무가 없게 된 경우 § 2 EFZG에 따른다.`);
   b += cl("§ Arbeitszeitaufzeichnung", "근무시간 기록");
   b += de(`Aufzeichnung von Beginn/Ende/Dauer nach § 17 MiLoG (App-Dienstplan/Stundenzettel), Aufbewahrung 2 Jahre.`);
   b += ko(`§17 MiLoG에 따라 근무시간 기록(앱 스케줄/기록표), 2년 보관.`);
