@@ -67,6 +67,7 @@ function ReconTab({ data, persist }) {
 
   // ===== 사진 구멍 세션 (루센트 쿠폰인데 SumUp 미결제) =====
   const un = rc && Array.isArray(rc.un) ? rc.un : [];
+  const unSum = un.reduce((a, s) => a + (Number(s.v)||0), 0); // 미매칭 세션 추정가 합 (sk와 다를 수 있음)
   const markedUnSum = un.filter(s => isMarked(s.t, s.v)).reduce((a, s) => a + (Number(s.v)||0), 0); // 과거 프리샷 마킹 합
 
   // 근무자 매핑: 세션 시각 → 시프트(오프닝/클로징) → 그날 배정된 직원
@@ -334,8 +335,11 @@ function ReconTab({ data, persist }) {
           {/* 사진 구멍 세션 (근무자 배지) */}
           {rc ? (
             <div className="card" style={{marginBottom:10,overflowX:"auto"}}>
-              <div style={{fontWeight:700,color:"#b8860b",marginBottom:4,fontSize:13}}>📷 사진 구멍 세션 ({un.length}건)</div>
-              <div style={{fontSize:10,color:"#888",marginBottom:8}}>루센트 쿠폰인데 SumUp 결제가 안 잡힌 세션 (가격 추정이라 노이즈 있음 · 참고용).</div>
+              <div style={{fontWeight:700,color:"#b8860b",marginBottom:4,fontSize:13}}>📷 사진 구멍 세션 ({un.length}건 · 추정 합 €{fmtE(unSum)})</div>
+              <div style={{fontSize:10,color:"#888",marginBottom:8}}>
+                루센트 쿠폰 세션 중 SumUp 결제와 짝을 못 찾은 것. 가격이 추정치이고 묶음결제·시간차 때문에 짝이 어긋날 수 있어서,
+                이 목록의 합이 위 <strong>미설명 €와 다른 게 정상</strong>이에요. 돈 계산은 하루 총액 기준(미설명)이 맞고, 이 목록은 "몇 시쯤·누구 근무 때였나" 참고용.
+              </div>
               {un.length ? (
                 <table className="tbl">
                   <thead><tr><th>시각</th><th>금액</th><th>근무자</th></tr></thead>
