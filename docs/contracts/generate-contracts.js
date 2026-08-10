@@ -180,6 +180,91 @@ function buildContract() {
 }
 
 // ============================================================
+// 1b) Arbeitsvertrag (kurzfristige Beschäftigung) — 단기고용 계약서
+// ============================================================
+function buildContractKurzfristig() {
+  const children = [
+    ...title("Arbeitsvertrag für kurzfristig Beschäftigte",
+             "근로계약서 — 단기고용(kurzfristige Beschäftigung)용"),
+
+    de("Zwischen", { bold: true }),
+    de(`Firma / Inhaber:in: ${blank(45)}`),
+    de(`Anschrift: ${blank(52)}`),
+    de("— nachfolgend „Arbeitgeber“ — ", { tight: true }),
+    ko("사용자(고용주): 상호/대표자 및 주소를 기재 — 이하 “사용자”"),
+    de("und", { bold: true }),
+    de(`Name: ${blank(30)}   geboren am: ${blank(14)}`),
+    de(`Anschrift: ${blank(52)}`),
+    de("— nachfolgend „Arbeitnehmer/in“ — wird folgender Arbeitsvertrag geschlossen:", { tight: true }),
+    ko("근로자: 성명·생년월일·주소를 기재 — 이하 “근로자”. 양 당사자는 아래와 같이 근로계약을 체결한다."),
+
+    clause("§ 1 Befristung, Art und Ort der Tätigkeit", "§ 1 계약기간·업무 내용·근무 장소"),
+    de(`Das Arbeitsverhältnis beginnt am ${blank(14)} und ist befristet bis zum ${blank(14)} (längstens bis zum Ende des Kalenderjahres).`),
+    de(`Die Beschäftigung ist im Voraus auf höchstens ${blank(4)} Arbeitstage (max. 70 Arbeitstage bzw. 3 Monate im Kalenderjahr) begrenzt und wird nur an einzelnen Tagen nach Dienstplan ausgeübt.`),
+    de("Der/Die Arbeitnehmer/in wird als Aushilfskraft im Fotostudio „Hamafilm“ beschäftigt. Die Tätigkeit umfasst insbesondere: Kundenbetreuung, Bedienung und Pflege der Fotoautomaten, Kassenführung und Tagesabschluss, Reinigungs- und Aufräumarbeiten sowie vergleichbare Tätigkeiten."),
+    de(`Arbeitsort: ${blank(50)}`),
+    ko("단기고용은 반드시 기간의 정함이 있어야 한다: 개시일과 종료일(늦어도 해당 연도 말일)을 기재하고, 연간 최대 근무일수(70일 이내)를 사전에 계약서에 명시한다. 업무 내용은 포토스튜디오 “하마필름”의 고객 응대, 포토부스 기기 조작·관리, 캐셔 및 일일 마감, 청소·정리 등이다.", { last: true }),
+    noteP("Eine unbefristete Beschäftigung „ein paar Tage pro Monat auf Dauer“ gilt als regelmäßig und ist NICHT kurzfristig — die Befristung daher unbedingt eintragen und den Vertrag jährlich neu abschließen.",
+          "기한 없이 “매달 며칠씩 계속” 일하는 형태는 상시고용으로 간주되어 단기고용 자격이 인정되지 않습니다. 반드시 종료일을 적고, 계속 고용하려면 매년(예: 1.1.~31.12.) 새 계약을 체결하세요."),
+
+    clause("§ 2 Arbeitszeit und Dienstplan", "§ 2 근로시간·근무표"),
+    de(`Der Einsatz erfolgt an einzelnen Tagen nach Dienstplan, voraussichtlich ca. ${blank(4)} Tage pro Monat mit jeweils ca. ${blank(4)} Stunden. Die Einsatztage werden rechtzeitig — in der Regel mindestens vier Tage im Voraus — abgestimmt.`),
+    ko("근무는 근무표에 따라 개별 일자에만 이루어지며, 예상 월 근무일수와 1회 근무시간을 기재한다. 근무일은 원칙적으로 최소 4일 전에 협의·통지한다.", { last: true }),
+
+    clause("§ 3 Vergütung und Auszahlung", "§ 3 임금 및 지급 방법"),
+    de(`Der/Die Arbeitnehmer/in erhält einen Stundenlohn von ${blank(7)} € brutto. Der gesetzliche Mindestlohn (Stand 2026: 13,90 €/Std.) wird nicht unterschritten.`),
+    de(`Die Vergütung wird monatlich abgerechnet und spätestens zum ${blank(4)}. des Folgemonats ausgezahlt:`),
+    de("☐  in bar gegen Unterzeichnung einer Lohnquittung        ☐  durch Überweisung auf folgendes Konto:"),
+    de(`IBAN: ${blank(34)}`),
+    de("Bei Barauszahlung bestätigt der/die Arbeitnehmer/in den Empfang des Betrags jeweils durch Unterschrift auf der Lohnquittung. Der Arbeitgeber erstellt für jeden Abrechnungsmonat eine Lohnabrechnung."),
+    ko("시급(세전)을 기재하며 법정 최저임금(2026년 기준 시급 13.90유로) 이상이어야 한다. 임금은 월 단위 정산하여 익월 기재일까지 지급하고, 현금 지급 시 근로자는 매회 급여 수령확인서에 서명한다. 사용자는 매월 급여명세서를 발급한다. 단기고용은 미니잡과 달리 월 급여 상한이 없다.", { last: true }),
+
+    clause("§ 4 Status des Arbeitnehmers / der Arbeitnehmerin", "§ 4 근로자 신분 확인 (직업성 여부)"),
+    de("Der/Die Arbeitnehmer/in erklärt, dass die Beschäftigung nicht berufsmäßig ausgeübt wird. Er/Sie ist:"),
+    de(`☐ Schüler/in   ☐ Student/in   ☐ hauptberuflich beschäftigt bei: ${blank(22)}   ☐ Sonstiges: ${blank(14)}`),
+    de(`Vorbeschäftigungen: Der/Die Arbeitnehmer/in hat im laufenden Kalenderjahr bereits ${blank(4)} Arbeitstage in anderen kurzfristigen Beschäftigungen gearbeitet. Weitere kurzfristige Beschäftigungen sind dem Arbeitgeber unverzüglich anzuzeigen, da alle Zeiten zusammengerechnet werden.`),
+    ko("단기고용은 “생계 목적의 직업”이 아닌 경우에만 가능하다(학생·주부·본업이 있는 사람 등은 가능, 실업자는 불가). 근로자는 해당 신분을 체크하고, 같은 해에 다른 단기고용으로 일한 일수를 기재한다. 모든 단기고용 일수는 합산되어 연 70일을 초과하면 자격이 상실되므로, 변동이 생기면 즉시 사용자에게 알린다.", { last: true }),
+
+    clause("§ 5 Steuern und Sozialversicherung", "§ 5 세금 및 사회보험"),
+    de("Die Beschäftigung ist als kurzfristige Beschäftigung sozialversicherungsfrei (keine Beiträge zur Renten-, Kranken-, Pflege- und Arbeitslosenversicherung). Der Arbeitgeber meldet die Beschäftigung bei der Minijob-Zentrale an und trägt die gesetzlichen Umlagen sowie die Unfallversicherung."),
+    de(`Die Versteuerung erfolgt:  ☐ individuell nach den elektronischen Lohnsteuerabzugsmerkmalen (ELStAM)   ☐ pauschal mit 25 % (§ 40a EStG) zu Lasten des ${blank(16)}.`),
+    ko("단기고용은 사회보험(연금·건강·요양·실업보험료)이 면제된다. 사용자는 미니잡센터에 신고(인원그룹 110)하고 법정 분담금과 산재보험을 부담한다. 세금은 근로자의 개인 세금정보(ELStAM)로 처리하거나(학생은 보통 실질 0%), 정액 25%로 처리할 수 있다(부담 주체 기재).", { last: true }),
+
+    clause("§ 6 Urlaub", "§ 6 휴가"),
+    de("Der/Die Arbeitnehmer/in hat Anspruch auf den gesetzlichen Erholungsurlaub nach dem Bundesurlaubsgesetz, anteilig nach Beschäftigungsdauer und Arbeitstagen. Nicht genommener Urlaub wird bei Vertragsende abgegolten."),
+    ko("단기고용 근로자도 근무기간·근무일수에 비례한 법정 유급휴가가 발생하며, 사용하지 못한 휴가는 계약 종료 시 수당으로 정산한다.", { last: true }),
+
+    clause("§ 7 Krankheit und Feiertage", "§ 7 질병·공휴일"),
+    de("Anspruch auf Entgeltfortzahlung im Krankheitsfall besteht nach vierwöchiger ununterbrochener Dauer des Arbeitsverhältnisses (§ 3 Abs. 3 EFZG). Die Arbeitsunfähigkeit ist unverzüglich mitzuteilen; eine ärztliche Bescheinigung ist spätestens am vierten Kalendertag vorzulegen, auf Verlangen früher. Für Arbeitszeit, die infolge eines gesetzlichen Feiertags ausfällt, wird das Entgelt nach § 2 EFZG fortgezahlt."),
+    ko("유급 병가는 근로관계가 중단 없이 4주 지속된 후부터 인정된다(임금계속지급법 § 3 ③). 아프면 즉시 알리고 늦어도 4일째에는 진단서를 제출한다. 근무 예정일이 법정 공휴일이어서 근무가 없게 된 경우 해당 임금은 지급된다.", { last: true }),
+
+    clause("§ 8 Arbeitszeitaufzeichnung", "§ 8 근무시간 기록"),
+    de("Beginn, Ende und Dauer der täglichen Arbeitszeit werden gemäß § 17 MiLoG spätestens sieben Tage nach der Arbeitsleistung aufgezeichnet (Dienstplan-/Kassensystem des Arbeitgebers bzw. Stundenzettel). Der/Die Arbeitnehmer/in wirkt an der Aufzeichnung mit und bestätigt sie auf Verlangen durch Unterschrift. Die Einsatztage werden zusätzlich fortlaufend gezählt."),
+    ko("최저임금법 § 17에 따라 일별 근무 시작·종료·시간을 7일 이내에 기록한다(스케줄/포스 시스템 또는 근무시간 기록표). 연 70일 한도 관리를 위해 근무일수도 계속 집계한다.", { last: true }),
+
+    clause("§ 9 Kassenführung, Verschwiegenheit und Eigentum", "§ 9 현금 관리·비밀유지·비품"),
+    de("Der/Die Arbeitnehmer/in behandelt die Kasse mit Sorgfalt, führt den Tagesabschluss nach den Vorgaben des Arbeitgebers durch und meldet Fehlbeträge oder Unregelmäßigkeiten unverzüglich. Über Geschäfts- und Betriebsgeheimnisse (u. a. Umsätze, Kundendaten, Zugangscodes) ist Stillschweigen zu bewahren, auch nach Beendigung des Arbeitsverhältnisses. Überlassene Schlüssel, Zugangscodes und Arbeitsmittel sind bei Beendigung zurückzugeben."),
+    ko("근로자는 시재(현금)를 주의 깊게 관리하고 사용자 지침에 따라 일일 마감을 수행하며, 부족액·이상 발견 시 즉시 보고한다. 매출, 고객정보, 출입코드 등 영업비밀은 퇴사 후에도 비밀로 유지하고, 지급받은 열쇠·코드·비품은 계약 종료 시 반납한다.", { last: true }),
+
+    clause("§ 10 Kündigung", "§ 10 계약 해지"),
+    de("Das Arbeitsverhältnis endet mit Ablauf der Befristung, ohne dass es einer Kündigung bedarf. Das Recht zur ordentlichen Kündigung mit den gesetzlichen Fristen (§ 622 BGB) wird beiderseits vorbehalten. Jede Kündigung bedarf der Schriftform (§ 623 BGB)."),
+    ko("계약은 기재된 종료일이 지나면 별도 통보 없이 종료된다. 그 전이라도 양 당사자는 독일 민법 § 622의 법정 예고기간을 두고 해지할 수 있으며, 해지는 반드시 서면(자필 서명)으로 한다.", { last: true }),
+
+    clause("§ 11 Schlussbestimmungen", "§ 11 기타 조항"),
+    de("Dieser Vertrag enthält die wesentlichen Arbeitsbedingungen im Sinne des Nachweisgesetzes. Änderungen und Ergänzungen bedürfen der Textform. Sollten einzelne Bestimmungen unwirksam sein, bleibt der Vertrag im Übrigen wirksam; anstelle der unwirksamen Bestimmung gilt die gesetzliche Regelung. Jede Partei erhält ein unterschriebenes Exemplar."),
+    ko("이 계약서는 독일 근로조건명시법상 필수 기재사항을 포함한다. 변경·보충은 텍스트 형식으로 하며, 일부 조항이 무효라도 나머지는 유효하다. 계약서는 2부 작성하여 각자 1부씩 보관한다.", { last: true }),
+
+    ...sigBlock(),
+    footerMuster(),
+  ];
+
+  return new Document({
+    styles: { default: { document: { run: { font: FONT, size: 20 } } } },
+    sections: [{ properties: { page: { margin: A4_MARGINS } }, children }],
+  });
+}
+
+// ============================================================
 // 2) Lohnquittung (현금 수령확인서) + Jahresübersicht (연간 지급대장)
 // ============================================================
 function receiptBlock(n) {
@@ -318,6 +403,7 @@ function buildTimesheet() {
   fs.mkdirSync(OUT, { recursive: true });
   const jobs = [
     ["Arbeitsvertrag_Minijob_하마필름.docx", buildContract()],
+    ["Arbeitsvertrag_Kurzfristig_하마필름.docx", buildContractKurzfristig()],
     ["Lohnquittung_급여현금수령확인서.docx", buildReceipt()],
     ["Stundenzettel_근무시간기록표.docx", buildTimesheet()],
   ];
