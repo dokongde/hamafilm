@@ -97,6 +97,14 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
     .filter(r => r.used + r.future > 0)
     .sort((a, b) => b.used - a.used);
 
+  // 지급 관리 정렬: 미지급 → 준비완료 → 지급완료 (아직 줄 돈이 있는 사람이 위로)
+  const payStatusOf = (r) => {
+    const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
+    return pay ? (pay.status || (pay.paid ? "paid" : "none")) : "none";
+  };
+  const PAY_ORDER = { none: 0, ready: 1, paid: 2 };
+  const payRows = [...visRows].sort((a, b) => PAY_ORDER[payStatusOf(a)] - PAY_ORDER[payStatusOf(b)]);
+
   // lexware/엑셀 입력용 복사 (탭 구분 → 붙여넣으면 표로 들어감)
   const copyLexware = () => {
     const head = "직원\t근무일\t시간\t시급(€)\t총액 브루토(€)";
@@ -246,7 +254,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
               </tr>
             </thead>
             <tbody>
-              {visRows.map(r => {
+              {payRows.map(r => {
                 const pay = (data.payments||[]).find(p => p.staffId===r.st.id && p.ym===salYM);
                 const status = pay ? (pay.status || (pay.paid ? "paid" : "none")) : "none";
                 const paid = status === "paid";
