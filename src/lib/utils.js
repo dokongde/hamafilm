@@ -134,4 +134,23 @@ function getMonthRange(startYM, endYM) {
 
 function setCurrentVacations(v) { CURRENT_VACATIONS = v || []; }
 
-export { easter, addD, dstr, hessenHols, DOW_KO, isInVacation, setCurrentVacations, getSlots, dowKo, todayStr, curYM, nextYM, prevYM, getCarryIn, fmtE, fmt, nid, shiftHours, actualMinutes, timeDiff, needsAttention, REPORT_KINDS, reportKindLabel, getMonthRange };
+// 직원 정보(이름·시급·고용형태·시작일)를 자동으로 채운 계약서를 새 창(브라우저)으로 연다.
+// PWA에서 갇히지 않도록 실제 URL(vertrag.html) + target=_blank 앵커 방식 사용.
+function openVertrag(st) {
+  if (!st) return;
+  const q = new URLSearchParams({
+    type: st.empType === "mini" ? "mini" : "kurz",
+    name: st.name || "",
+    wage: st.wage != null ? fmtE(st.wage) : "",
+    start: st.kurzStart || "",
+  });
+  const a = document.createElement("a");
+  a.href = `/vertrag.html?${q.toString()}`;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+export { easter, addD, dstr, hessenHols, DOW_KO, isInVacation, setCurrentVacations, openVertrag, getSlots, dowKo, todayStr, curYM, nextYM, prevYM, getCarryIn, fmtE, fmt, nid, shiftHours, actualMinutes, timeDiff, needsAttention, REPORT_KINDS, reportKindLabel, getMonthRange };
