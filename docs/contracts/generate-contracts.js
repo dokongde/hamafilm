@@ -199,13 +199,13 @@ function buildContractKurzfristig() {
     ko("근로자: 성명·생년월일·주소를 기재 — 이하 “근로자”. 양 당사자는 아래와 같이 근로계약을 체결한다."),
 
     clause("§ 1 Befristung, Art und Ort der Tätigkeit", "§ 1 계약기간·업무 내용·근무 장소"),
-    de(`Das Arbeitsverhältnis beginnt am ${blank(14)} und ist befristet bis zum ${blank(14)} (längstens bis zum Ende des Kalenderjahres).`),
-    de(`Die Beschäftigung ist im Voraus auf höchstens ${blank(4)} Arbeitstage (max. 70 Arbeitstage bzw. 3 Monate im Kalenderjahr) begrenzt und wird nur an einzelnen Tagen nach Dienstplan ausgeübt.`),
+    de(`Das Arbeitsverhältnis beginnt am ${blank(14)} und ist befristet bis zum ${blank(14)} (Laufzeit insgesamt höchstens zwölf Monate).`),
+    de(`Die Beschäftigung ist im Voraus auf höchstens ${blank(4)} Arbeitstage (max. 70 Arbeitstage innerhalb der Vertragslaufzeit) begrenzt und wird nur an einzelnen Tagen nach Dienstplan ausgeübt.`),
     de("Der/Die Arbeitnehmer/in wird als Aushilfskraft im Fotostudio „Hamafilm“ beschäftigt. Die Tätigkeit umfasst insbesondere: Kundenbetreuung, Bedienung und Pflege der Fotoautomaten, Kassenführung und Tagesabschluss, Reinigungs- und Aufräumarbeiten sowie vergleichbare Tätigkeiten."),
     de(`Arbeitsort: ${blank(50)}`),
-    ko("단기고용은 반드시 기간의 정함이 있어야 한다: 개시일과 종료일(늦어도 해당 연도 말일)을 기재하고, 연간 최대 근무일수(70일 이내)를 사전에 계약서에 명시한다. 업무 내용은 포토스튜디오 “하마필름”의 고객 응대, 포토부스 기기 조작·관리, 캐셔 및 일일 마감, 청소·정리 등이다.", { last: true }),
-    noteP("Eine unbefristete Beschäftigung „ein paar Tage pro Monat auf Dauer“ gilt als regelmäßig und ist NICHT kurzfristig — die Befristung daher unbedingt eintragen und den Vertrag jährlich neu abschließen.",
-          "기한 없이 “매달 며칠씩 계속” 일하는 형태는 상시고용으로 간주되어 단기고용 자격이 인정되지 않습니다. 반드시 종료일을 적고, 계속 고용하려면 매년(예: 1.1.~31.12.) 새 계약을 체결하세요."),
+    ko("단기고용은 반드시 기간의 정함이 있어야 한다: 개시일과 종료일을 기재하고(총 기간 최대 12개월), 계약기간 내 최대 근무일수(70일 이내)를 사전에 계약서에 명시한다. 업무 내용은 포토스튜디오 “하마필름”의 고객 응대, 포토부스 기기 조작·관리, 캐셔 및 일일 마감, 청소·정리 등이다.", { last: true }),
+    noteP("Eine unbefristete oder dauerhaft wiederkehrende Beschäftigung gilt als regelmäßig und ist NICHT kurzfristig — die Befristung daher unbedingt eintragen. Ein neuer Rahmenvertrag mit derselben Person setzt eine Unterbrechung von mindestens zwei Monaten voraus.",
+          "기한 없이 계속 반복되는 형태는 상시고용으로 간주되어 단기고용 자격이 인정되지 않으므로 반드시 종료일을 적으세요. 같은 사람과 다시 단기고용 계약을 맺으려면 최소 2개월의 공백이 필요합니다."),
 
     clause("§ 2 Arbeitszeit und Dienstplan", "§ 2 근로시간·근무표"),
     de(`Der Einsatz erfolgt an einzelnen Tagen nach Dienstplan, voraussichtlich ca. ${blank(4)} Tage pro Monat mit jeweils ca. ${blank(4)} Stunden. Die Einsatztage werden rechtzeitig — in der Regel mindestens vier Tage im Voraus — abgestimmt.`),
