@@ -6,13 +6,15 @@ import { GAS_URL } from "../data/gas";
 // 카운트는 실제 근무기록 기준 — 임의 제외 불가. 한도가 다가오면 미리 경고해서
 // 시프트를 나누거나 미니잡 전환을 결정할 수 있게 한다.
 const KURZ_LIMIT = 70;
-function yearDayStats(shifts, staffId, year, today) {
+function yearDayStats(shifts, staffId, year, today, kurzStart) {
+  // kurzStart(공식 계약 시작일) 이전 근무는 카운트에서 제외 — 등록된 고용 기준으로 관리
+  const from = kurzStart && kurzStart > `${year}-01-01` ? kurzStart : `${year}-01-01`;
   const used = new Set(), future = new Set();
   (shifts || []).forEach(s => {
-    if (s.staffId !== staffId || !s.date.startsWith(year)) return;
+    if (s.staffId !== staffId || !s.date.startsWith(year) || s.date < from) return;
     (s.date <= today ? used : future).add(s.date);
   });
-  const start = new Date(`${year}-01-01`);
+  const start = new Date(from);
   const weeksElapsed = Math.max((new Date(today) - start) / 6048e5, 1);
   const weeksRemain = Math.max((new Date(`${year}-12-31`) - new Date(today)) / 6048e5, 0);
   const pace = used.size / weeksElapsed; // 일/주
@@ -110,7 +112,7 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
   const year = String(new Date().getFullYear());
   const today = todayStr();
   const dayRows = (data.staff||[])
-    .map(st => ({ st, ...yearDayStats(data.shifts, st.id, year, today) }))
+    .map(st => ({ st, ...yearDayStats(data.shifts, st.id, year, today, st.kurzStart) }))
     .filter(r => r.used + r.future > 0)
     .sort((a, b) => b.used - a.used);
 
@@ -186,7 +188,10 @@ function SalaryTab({ data, persist, setModal, gSt, toast }) {
                 const col = over || red ? "#e03131" : ylw ? "#e8590c" : "#2f9e44";
                 return (
                   <tr key={r.st.id}>
-                    <td><span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong></td>
+                    <td>
+                      <span className="dot" style={{background:r.st.color}} /><strong>{r.st.name}</strong>
+                      {r.st.kurzStart ? <div style={{fontSize:9,color:"#999"}}>{r.st.kurzStart}부터</div> : null}
+                    </td>
                     <td className="mn" style={{color:col,fontWeight:700}}>{r.used}/{KURZ_LIMIT}일</td>
                     <td className="mn" style={{color:"#888"}}>{r.future > 0 ? `+${r.future}일` : "—"}</td>
                     <td className="mn" style={{color:"#888"}}>주 {r.pace.toFixed(1)}회</td>

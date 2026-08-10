@@ -40,15 +40,16 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
   const [wage, setWage] = useState(ed?.wage || 14);
   const [color, setColor] = useState(ed?.color || "#5352ed");
   const [pin, setPin] = useState(ed?.pin || "");
+  const [kurzStart, setKurzStart] = useState(ed?.kurzStart || "");
   const colors = ["#5352ed","#ff6b35","#4ecdc4","#f5c518","#ff4757","#2ed573","#a55eea","#ff6b9d","#00d2d3","#ff9ff3"];
   const save = async () => {
     if (!name) { toast("이름 입력"); return; }
     if (pin && !/^\d{4}$/.test(pin)) { toast("PIN은 4자리 숫자"); return; }
     let nd;
     if (ed) {
-      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color, pin} : s)};
+      nd = {...data, staff: data.staff.map(s => s.id===ed.id ? {...s, name, phone, wage: parseFloat(wage), color, pin, kurzStart} : s)};
     } else {
-      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color, pin}]};
+      nd = {...data, staff: [...data.staff, {id: nid(data.staff), name, phone, wage: parseFloat(wage), color, pin, kurzStart}]};
     }
     await persist(nd);
     close();
@@ -96,6 +97,15 @@ function AddStaffModal({ modal, data, persist, close, toast }) {
             />
             <div style={{fontSize:10,color:"#888",marginTop:3}}>
               💡 PIN 설정 시: 본인 이름 클릭하면 PIN 입력 필요
+            </div>
+          </div>
+        </div>
+        <div className="fr">
+          <div>
+            <label>📋 단기고용 계약 시작일 (70일 카운트 시작)</label>
+            <input type="date" value={kurzStart} onChange={e=>setKurzStart(e.target.value)} />
+            <div style={{fontSize:10,color:"#888",marginTop:3}}>
+              💡 공식 등록·계약 시작일부터 근무일을 셉니다. 같은 해에 다른 단기 알바로 일한 일수는 법적으로 합산되니 계약서에 기재해두세요.
             </div>
           </div>
         </div>
