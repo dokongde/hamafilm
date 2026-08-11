@@ -123,17 +123,19 @@ function CashOutModal({ modal, data, persist, close, toast }) {
   const [skMade, setSkMade] = useState(sh.skMade != null ? String(sh.skMade) : "");
   const [skMadeMemo, setSkMadeMemo] = useState(sh.skMadeMemo || "");
   const skMadeNum = (isSanctioned && skMade !== "") ? (parseFloat(skMade) || 0) : null;
-  // 무료/할인/재촬영 자가기록
+  // 무료/할인/재촬영 자가기록 — 종류 + 금액(원래 가격) 한 칸. '일부 받음'일 때만 받은€ 칸 추가.
   const [report, setReport] = useState(Array.isArray(sh.report) ? sh.report : []);
-  const [rKind, setRKind] = useState("free");
+  const [rKind, setRKind] = useState("reshoot");
   const [rFull, setRFull] = useState("");
   const [rPaid, setRPaid] = useState("");
+  const [rPartial, setRPartial] = useState(false);
   const [rNote, setRNote] = useState("");
   const addReport = () => {
     const full = parseFloat(rFull) || 0;
-    const paid = parseFloat(rPaid) || 0;
+    if (full <= 0) { toast("금액(€)을 먼저 넣어주세요"); return; }
+    const paid = rPartial ? (parseFloat(rPaid) || 0) : 0;
     setReport([...report, { kind: rKind, full, paid, note: (rNote || "").trim() }]);
-    setRFull(""); setRPaid(""); setRNote(""); setRKind("free");
+    setRFull(""); setRPaid(""); setRNote(""); setRPartial(false);
   };
   const removeReport = (i) => setReport(report.filter((_, ix) => ix !== i));
 
@@ -195,7 +197,53 @@ function CashOutModal({ modal, data, persist, close, toast }) {
   const dState = drawerDiff == null ? null : (drawerDiff <= -2 ? "short" : (drawerDiff >= 2 ? "over" : "ok"));
   const DIFF_REASONS = ["거스름돈 실수", "사장님·인정직원 인출", "모름"];
 
+  // ── 기록 폼 (경고 박스 안 / 하단 공용) — 종류 누르고 금액 하나만 넣으면 끝 ──
+  const recordInBox = !!(check && check.loaded && (unexplained >= 1 || report.length > 0));
+  const recordUI = (
+    <div>
+      <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
+        {REPORT_KINDS.map(x => (
+          <button key={x.k} onClick={()=>setRKind(x.k)}
+            style={{padding:"5px 9px",borderRadius:12,fontSize:11,cursor:"pointer",
+              border: rKind===x.k ? "1px solid #4dabf7" : "1px solid #ddd",
+              background: rKind===x.k ? "rgba(77,171,247,.12)" : "#fff",
+              color: rKind===x.k ? "#1971c2" : "#666", fontWeight: rKind===x.k ? 700 : 400}}>
+            {rKind===x.k ? "✓ " : ""}{x.label}
+          </button>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:6}}>
+        <input type="number" inputMode="decimal" value={rFull} onChange={e=>setRFull(e.target.value)} placeholder="금액 €" style={{width:84}} />
+        {recordInBox && unexplained >= 1 ? (
+          <button className="btn bs sm" onClick={()=>setRFull(String(Math.round(unexplained * 100) / 100))}>€{fmtE(unexplained)} 전부</button>
+        ) : null}
+        <label style={{fontSize:11,display:"flex",alignItems:"center",gap:4,cursor:"pointer",whiteSpace:"nowrap"}}>
+          <input type="checkbox" checked={rPartial} onChange={e=>{ setRPartial(e.target.checked); if (!e.target.checked) setRPaid(""); }} />
+          일부 받음
+        </label>
+        {rPartial ? <input type="number" inputMode="decimal" value={rPaid} onChange={e=>setRPaid(e.target.value)} placeholder="받은 €" style={{width:78}} /> : null}
+        <input type="text" value={rNote} onChange={e=>setRNote(e.target.value)} placeholder="메모(선택)" style={{width:100}} />
+        <button className="btn bp sm" onClick={addReport}>+ 기록</button>
+      </div>
+      {report.length > 0 ? (
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:4}}>
+          {report.map((r, i) => (
+            <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,background:"#fff",border:"1px solid #eee",borderRadius:6,padding:"4px 8px"}}>
+              <span>{reportKindLabel(r.kind)} · €{fmtE(r.full)}{(Number(r.paid)||0)>0?`→받음 €${fmtE(r.paid)}`:""} <span style={{color:"#2f9e44"}}>(설명 €{fmtE(Math.max((Number(r.full)||0)-(Number(r.paid)||0),0))})</span>{r.note ? ` · ${r.note}` : ""}</span>
+              <button className="btn bd sm" onClick={()=>removeReport(i)}>삭제</button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+
   const save = async () => {
+    // 차이가 남아 있으면 기록하거나 '확인' 체크를 해야 퇴근 완료 (퇴근 자체를 막지 않되 한 번은 응답)
+    if (check && check.loaded && unexplained >= 1 && !checkConfirmed) {
+      toast(`❗ €${fmtE(unexplained)} 차이를 기록하거나 '확인했습니다'에 체크해주세요`);
+      return;
+    }
     const amt = cash === "" ? null : (parseFloat(cash) || 0);
     const updated = { ...sh, cashCount: amt, cashMemo: (memo || "").trim(), report };
     if (check && check.loaded) {
@@ -260,15 +308,19 @@ function CashOutModal({ modal, data, persist, close, toast }) {
             {unexplained >= 1 ? (
               <>
                 <div style={{fontSize:11,fontWeight:600,color:cColor,marginBottom:6}}>
-                  ❓ €{fmtE(unexplained)} 안 맞아요 — {cState==="red" ? "안 넣은 결제/무료/재촬영이 있나요? 아래에 기록하면 줄어들어요." : "가격 추정 오차일 수 있어요. 확인만 해주세요."}
+                  ❓ €{fmtE(unexplained)} 안 맞아요 — {cState==="red" ? "재촬영·무료 있었죠? 종류 누르고 금액만 넣으면 초록불로 바뀌어요." : "가격 추정 오차일 수 있어요. 기록할 게 없으면 아래 확인만 체크해주세요."}
                 </div>
-                <label style={{fontSize:11,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+                {recordUI}
+                <label style={{fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:6,cursor:"pointer",marginTop:6,padding:"7px 9px",background:"rgba(0,0,0,.05)",borderRadius:6}}>
                   <input type="checkbox" checked={checkConfirmed} onChange={e=>setCheckConfirmed(e.target.checked)} />
-                  확인했습니다 (더 없음 / 사유 기록함)
+                  확인했습니다 — 더 기록할 것 없어요
                 </label>
               </>
             ) : (
-              <div style={{fontSize:11,color:"#2f9e44"}}>기록 설명까지 반영해 맞습니다 👍</div>
+              <>
+                <div style={{fontSize:11,color:"#2f9e44"}}>기록 설명까지 반영해 맞습니다 👍</div>
+                {report.length > 0 ? <div style={{marginTop:6}}>{recordUI}</div> : null}
+              </>
             )}
           </div>
         )}
@@ -341,39 +393,14 @@ function CashOutModal({ modal, data, persist, close, toast }) {
           </div>
         ) : null}
 
-        {/* 무료/할인/재촬영 자가기록 */}
-        <div style={{borderTop:"1px solid #eee",paddingTop:10}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#b8860b",marginBottom:2}}>📸 오늘 무료/할인/재촬영 기록 (선택)</div>
-          <div style={{fontSize:10,color:"#888",marginBottom:8}}>사진은 찍혔는데 SumUp 결제가 €0이거나 일부만 된 경우를 적어주세요. (원가 → 실제 받은 금액)</div>
-          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
-            {REPORT_KINDS.map(x => (
-              <button key={x.k} onClick={()=>setRKind(x.k)}
-                style={{padding:"4px 8px",borderRadius:12,fontSize:11,cursor:"pointer",
-                  border: rKind===x.k ? "1px solid #4dabf7" : "1px solid #ddd",
-                  background: rKind===x.k ? "rgba(77,171,247,.12)" : "#fff",
-                  color: rKind===x.k ? "#1971c2" : "#666", fontWeight: rKind===x.k ? 700 : 400}}>
-                {x.label}
-              </button>
-            ))}
+        {/* 무료/할인/재촬영 자가기록 — 차이 경고 박스에 이미 들어가 있으면 여기선 숨김 */}
+        {!recordInBox ? (
+          <div style={{borderTop:"1px solid #eee",paddingTop:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#b8860b",marginBottom:2}}>📸 오늘 무료/할인/재촬영 기록 (선택)</div>
+            <div style={{fontSize:10,color:"#888",marginBottom:8}}>사진 찍혔는데 결제가 안 됐거나 덜 된 경우 — 종류 누르고 금액(원래 가격)만 넣으면 돼요.</div>
+            {recordUI}
           </div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
-            <input type="number" value={rFull} onChange={e=>setRFull(e.target.value)} placeholder="원가 €" style={{width:78}} />
-            <span style={{color:"#888"}}>→</span>
-            <input type="number" value={rPaid} onChange={e=>setRPaid(e.target.value)} placeholder="받은 €" style={{width:78}} />
-            <input type="text" value={rNote} onChange={e=>setRNote(e.target.value)} placeholder="메모(선택)" style={{width:110}} />
-            <button className="btn bp sm" onClick={addReport}>+ 추가</button>
-          </div>
-          {report.length > 0 ? (
-            <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:4}}>
-              {report.map((r, i) => (
-                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,background:"#f5f5f7",borderRadius:6,padding:"4px 8px"}}>
-                  <span>{reportKindLabel(r.kind)} · €{fmtE(r.full)}→€{fmtE(r.paid)} <span style={{color:"#2f9e44"}}>(할인 €{fmtE(Math.max((Number(r.full)||0)-(Number(r.paid)||0),0))})</span>{r.note ? ` · ${r.note}` : ""}</span>
-                  <button className="btn bd sm" onClick={()=>removeReport(i)}>삭제</button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        ) : null}
 
         <div className="mf">
           <button className="btn bs" onClick={close}>취소</button>
