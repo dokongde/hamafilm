@@ -60,15 +60,23 @@ function AddSalesModal({ data, persist, close, toast }) {
   );
 }
 
-// 오프닝 출근: 시작 시재(floatStart) 입력(선택) → actualStart와 함께 저장 + 출근 푸시.
-// kiosk의 doCheckIn(오프닝)이 이 모달로 넘김. 시재를 입력해두면 퇴근 때 서랍 비교가 가능해짐.
+// 출근 모달: 오프닝 = 시작 시재(floatStart) 입력(선택) / 클로징 = 오프닝 인계액과 인수 금액 대조.
+// kiosk의 doCheckIn이 이 모달로 넘김. 시재를 입력해두면 퇴근 때 서랍 비교가 가능해짐.
 function CashInModal({ modal, data, persist, close, toast }) {
   const sh = modal.shift; // {...shift, actualStart: time}
+  const isOpening = sh.slotType === "오프닝";
   const [cash, setCash] = useState(sh.floatStart != null ? String(sh.floatStart) : "");
+  // 클로징 인수 확인: 같은 날 오프닝이 퇴근 때 입력한 인계액(cashCount)과 지금 센 금액을 즉석 비교
+  const openSh = !isOpening ? (data.shifts||[]).find(x => x.date === sh.date && x.slotType === "오프닝" && x.cashCount != null) : null;
+  const expected = openSh ? (Number(openSh.cashCount) || 0) : null;
+  const cashNum = cash === "" ? null : (parseFloat(cash) || 0);
+  const hDiff = (expected != null && cashNum != null) ? Math.round((cashNum - expected) * 100) / 100 : null;
+  const hOk = hDiff != null && Math.abs(hDiff) < 2;
   const save = async () => {
     const amt = cash === "" ? null : (parseFloat(cash) || 0);
     const updated = { ...sh };
     if (amt != null) updated.floatStart = amt;
+    if (hDiff != null) updated.handoverDiff = hDiff; // 인수 시점 오프닝 인계액과의 차이 (대사 탭 표시용)
     await persist({ ...data, shifts: (data.shifts||[]).map(x => x.id === sh.id ? updated : x) });
     // 관리자 폰 출근 푸시 (fire-and-forget)
     try {
@@ -84,21 +92,39 @@ function CashInModal({ modal, data, persist, close, toast }) {
   return (
     <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className="modal" style={{maxWidth:360}}>
-        <h3>출근 · 시작 시재</h3>
+        <h3>{isOpening ? "출근 · 시작 시재" : "출근 · 서랍 인수 확인"}</h3>
         <div style={{fontSize:12,color:"#555",marginBottom:8}}>
-          <span className="badge bylw" style={{marginRight:6}}>오프닝</span>
+          <span className={"badge " + (isOpening ? "bylw" : "bgrn")} style={{marginRight:6}}>{sh.slotType}</span>
           {sh.date} · 출근 {modal.inTime}
         </div>
         <div style={{fontSize:11,color:"#666",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12,lineHeight:1.5}}>
-          지금 서랍에 있는 현금 총액(시작 시재)을 세서 입력하세요. <strong>선택사항</strong>이지만, 입력해두면 퇴근 때 서랍이 맞는지 자동으로 비교해줘요.
+          {isOpening
+            ? <>지금 서랍에 있는 현금 총액(시작 시재)을 세서 입력하세요. <strong>선택사항</strong>이지만, 입력해두면 퇴근 때 서랍이 맞는지 자동으로 비교해줘요.</>
+            : (expected != null
+              ? <>오프닝이 <strong>€{fmtE(expected)}</strong>를 인계했어요. 서랍 현금을 직접 세서 입력하면 맞는지 바로 확인돼요.</>
+              : <>서랍 현금 총액을 세서 입력하세요. (오프닝 인계액이 아직 없어서 비교는 생략돼요)</>)}
         </div>
         <div className="fr">
           <div>
-            <label>시작 시재 € (선택)</label>
+            <label>{isOpening ? "시작 시재 € (선택)" : "지금 센 서랍 현금 €"}</label>
             <input type="number" inputMode="decimal" autoFocus value={cash} onChange={e=>setCash(e.target.value)} placeholder="지금 서랍에 있는 금액" />
           </div>
         </div>
-        <div style={{fontSize:10,color:"#aaa",marginBottom:12}}>* 비워두고 출근해도 돼요 (그 경우 퇴근 때 서랍 비교는 생략).</div>
+        {hDiff != null ? (
+          hOk ? (
+            <div style={{border:"1.5px solid #2f9e44",background:"rgba(47,158,68,.06)",borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#2f9e44"}}>오프닝 인계 €{fmtE(expected)}와 맞아요</div>
+            </div>
+          ) : (
+            <div style={{border:"1.5px solid #e03131",background:"rgba(255,107,107,.06)",borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#e03131",marginBottom:3}}>
+                오프닝 인계 €{fmtE(expected)} vs 지금 센 €{fmtE(cashNum)} — €{fmtE(Math.abs(hDiff))} {hDiff < 0 ? "부족해요" : "많아요"}
+              </div>
+              <div style={{fontSize:10,color:"#888"}}>다시 한 번 세보고, 그래도 다르면 오프닝(또는 사장님)에게 바로 확인해주세요. 이 차이는 기록으로 남아요.</div>
+            </div>
+          )
+        ) : null}
+        <div style={{fontSize:10,color:"#aaa",marginBottom:12}}>{isOpening ? "* 비워두고 출근해도 돼요 (그 경우 퇴근 때 서랍 비교는 생략)." : "* 비워두고 출근해도 되지만, 세서 넣으면 인수인계가 깔끔해져요."}</div>
         <div className="mf">
           <button className="btn bs" onClick={close}>취소 (출근 안 함)</button>
           <button className="btn bp" onClick={save}>출근 완료</button>
@@ -195,7 +221,7 @@ function CashOutModal({ modal, data, persist, close, toast }) {
   const cashNum = cash === "" ? null : (parseFloat(cash) || 0);
   const drawerDiff = (drawerExpected != null && cashNum != null) ? r2c(cashNum - drawerExpected) : null;
   const dState = drawerDiff == null ? null : (drawerDiff <= -2 ? "short" : (drawerDiff >= 2 ? "over" : "ok"));
-  const DIFF_REASONS = ["거스름돈 실수", "사장님·인정직원 인출", "모름"];
+  const DIFF_REASONS = ["거스름돈 실수", "사장님 인출", "모름"];
 
   // ── 기록 폼 (경고 박스 안 / 하단 공용) — 종류 누르고 금액 하나만 넣으면 끝 ──
   const recordInBox = !!(check && check.loaded && (unexplained >= 1 || report.length > 0));
@@ -384,7 +410,7 @@ function CashOutModal({ modal, data, persist, close, toast }) {
           <div style={{borderTop:"1px solid #eee",paddingTop:10,marginBottom:10}}>
             <div style={{fontSize:12,fontWeight:700,color:"#1971c2",marginBottom:2}}>오늘 만든 현금(안 찍은 현금) € (선택)</div>
             <div style={{fontSize:10,color:"#888",marginBottom:8}}>
-              SumUp에 안 찍고 손님 현금으로 직접 받은 금액을 기록하세요. 서랍 계산과는 무관하고, 사장님 대사에서 인정몫으로 잡혀요.
+              SumUp에 안 찍고 손님 현금으로 직접 받은 금액을 기록하세요. 서랍 계산과는 무관하고, 사장님 대사에 자동으로 반영돼요.
             </div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
               <input type="number" inputMode="decimal" value={skMade} onChange={e=>setSkMade(e.target.value)} placeholder="오늘 만든 €" style={{width:100}} />

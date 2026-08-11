@@ -99,7 +99,8 @@ function ReconTab({ data, persist }) {
     name: staffName(s.staffId), cash: Number(s.cashCount)||0, memo: s.cashMemo || "",
     diff: s.cashDiff != null ? Number(s.cashDiff) : null,          // 퇴근 시 실시간 서랍 비교 (입력 − 기대)
     reason: s.cashDiffReason || "",                                 // 부족 이유 (직원 선택)
-    floatStart: s.floatStart != null ? Number(s.floatStart) : null  // 오프닝 시작 시재
+    floatStart: s.floatStart != null ? Number(s.floatStart) : null, // 오프닝 시작 시재 / 클로징 인수 금액
+    hd: s.handoverDiff != null ? Number(s.handoverDiff) : null      // 클로징 인수 시 오프닝 인계액과의 차이
   });
   const openCounts = dayShifts.filter(s => s.slotType === "오프닝" && s.cashCount != null).map(mapCount);
   const closeCounts = dayShifts.filter(s => s.slotType === "클로징" && s.cashCount != null).map(mapCount);
@@ -479,6 +480,11 @@ function ReconTab({ data, persist }) {
                     <span className="badge bgrn" style={{marginRight:6}}>클로징 마감</span>
                     {closeCounts.length ? closeCounts.map((c,i)=>(
                       <span key={i} style={{marginRight:8}}>
+                        {c.floatStart != null ? (
+                          <span style={{fontSize:10,color: c.hd != null && Math.abs(c.hd) >= 2 ? "#e03131" : "#888", fontWeight: c.hd != null && Math.abs(c.hd) >= 2 ? 700 : 400}}>
+                            인수 €{fmtE(c.floatStart)}{c.hd != null ? (Math.abs(c.hd) < 2 ? " ✓" : ` (인계와 €${fmtE(Math.abs(c.hd))} 차이)`) : ""} →{" "}
+                          </span>
+                        ) : null}
                         <strong className="mn">€{fmtE(c.cash)}</strong> <span style={{fontSize:11,color:"#888"}}>({c.name}{c.memo?` · ${c.memo}`:""})</span>
                         {c.diff != null ? (
                           c.diff <= -2 ? <span style={{fontSize:11,fontWeight:700,color:"#e03131"}}> −€{fmtE(-c.diff)} 부족{c.reason?` (${c.reason})`:""}</span>
