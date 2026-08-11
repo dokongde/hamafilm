@@ -60,15 +60,23 @@ function AddSalesModal({ data, persist, close, toast }) {
   );
 }
 
-// 오프닝 출근: 시작 시재(floatStart) 입력(선택) → actualStart와 함께 저장 + 출근 푸시.
-// kiosk의 doCheckIn(오프닝)이 이 모달로 넘김. 시재를 입력해두면 퇴근 때 서랍 비교가 가능해짐.
+// 출근 모달: 오프닝 = 시작 시재(floatStart) 입력(선택) / 클로징 = 오프닝 인계액과 인수 금액 대조.
+// kiosk의 doCheckIn이 이 모달로 넘김. 시재를 입력해두면 퇴근 때 서랍 비교가 가능해짐.
 function CashInModal({ modal, data, persist, close, toast }) {
   const sh = modal.shift; // {...shift, actualStart: time}
+  const isOpening = sh.slotType === "오프닝";
   const [cash, setCash] = useState(sh.floatStart != null ? String(sh.floatStart) : "");
+  // 클로징 인수 확인: 같은 날 오프닝이 퇴근 때 입력한 인계액(cashCount)과 지금 센 금액을 즉석 비교
+  const openSh = !isOpening ? (data.shifts||[]).find(x => x.date === sh.date && x.slotType === "오프닝" && x.cashCount != null) : null;
+  const expected = openSh ? (Number(openSh.cashCount) || 0) : null;
+  const cashNum = cash === "" ? null : (parseFloat(cash) || 0);
+  const hDiff = (expected != null && cashNum != null) ? Math.round((cashNum - expected) * 100) / 100 : null;
+  const hOk = hDiff != null && Math.abs(hDiff) < 2;
   const save = async () => {
     const amt = cash === "" ? null : (parseFloat(cash) || 0);
     const updated = { ...sh };
     if (amt != null) updated.floatStart = amt;
+    if (hDiff != null) updated.handoverDiff = hDiff; // 인수 시점 오프닝 인계액과의 차이 (대사 탭 표시용)
     await persist({ ...data, shifts: (data.shifts||[]).map(x => x.id === sh.id ? updated : x) });
     // 관리자 폰 출근 푸시 (fire-and-forget)
     try {
@@ -78,27 +86,45 @@ function CashInModal({ modal, data, persist, close, toast }) {
         headers: { "Content-Type": "text/plain;charset=utf-8" }, redirect: "follow"
       }).catch(() => {});
     } catch (e) { /* 무시 */ }
-    toast(`✅ 출근 완료 (${modal.inTime})`);
+    toast(`출근 완료 (${modal.inTime})`);
     close();
   };
   return (
     <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className="modal" style={{maxWidth:360}}>
-        <h3>🟢 출근 · 시작 시재</h3>
+        <h3>{isOpening ? "출근 · 시작 시재" : "출근 · 서랍 인수 확인"}</h3>
         <div style={{fontSize:12,color:"#555",marginBottom:8}}>
-          <span className="badge bylw" style={{marginRight:6}}>오프닝</span>
+          <span className={"badge " + (isOpening ? "bylw" : "bgrn")} style={{marginRight:6}}>{sh.slotType}</span>
           {sh.date} · 출근 {modal.inTime}
         </div>
         <div style={{fontSize:11,color:"#666",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12,lineHeight:1.5}}>
-          🔑 지금 서랍에 있는 현금 총액(시작 시재)을 세서 입력하세요. <strong>선택사항</strong>이지만, 입력해두면 퇴근 때 서랍이 맞는지 자동으로 비교해줘요.
+          {isOpening
+            ? <>지금 서랍에 있는 현금 총액(시작 시재)을 세서 입력하세요. <strong>선택사항</strong>이지만, 입력해두면 퇴근 때 서랍이 맞는지 자동으로 비교해줘요.</>
+            : (expected != null
+              ? <>오프닝이 <strong>€{fmtE(expected)}</strong>를 인계했어요. 서랍 현금을 직접 세서 입력하면 맞는지 바로 확인돼요.</>
+              : <>서랍 현금 총액을 세서 입력하세요. (오프닝 인계액이 아직 없어서 비교는 생략돼요)</>)}
         </div>
         <div className="fr">
           <div>
-            <label>시작 시재 € (선택)</label>
+            <label>{isOpening ? "시작 시재 € (선택)" : "지금 센 서랍 현금 €"}</label>
             <input type="number" inputMode="decimal" autoFocus value={cash} onChange={e=>setCash(e.target.value)} placeholder="지금 서랍에 있는 금액" />
           </div>
         </div>
-        <div style={{fontSize:10,color:"#aaa",marginBottom:12}}>* 비워두고 출근해도 돼요 (그 경우 퇴근 때 서랍 비교는 생략).</div>
+        {hDiff != null ? (
+          hOk ? (
+            <div style={{border:"1.5px solid #2f9e44",background:"rgba(47,158,68,.06)",borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#2f9e44"}}>오프닝 인계 €{fmtE(expected)}와 맞아요</div>
+            </div>
+          ) : (
+            <div style={{border:"1.5px solid #e03131",background:"rgba(255,107,107,.06)",borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#e03131",marginBottom:3}}>
+                오프닝 인계 €{fmtE(expected)} vs 지금 센 €{fmtE(cashNum)} — €{fmtE(Math.abs(hDiff))} {hDiff < 0 ? "부족해요" : "많아요"}
+              </div>
+              <div style={{fontSize:10,color:"#888"}}>다시 한 번 세보고, 그래도 다르면 오프닝(또는 사장님)에게 바로 확인해주세요. 이 차이는 기록으로 남아요.</div>
+            </div>
+          )
+        ) : null}
+        <div style={{fontSize:10,color:"#aaa",marginBottom:12}}>{isOpening ? "* 비워두고 출근해도 돼요 (그 경우 퇴근 때 서랍 비교는 생략)." : "* 비워두고 출근해도 되지만, 세서 넣으면 인수인계가 깔끔해져요."}</div>
         <div className="mf">
           <button className="btn bs" onClick={close}>취소 (출근 안 함)</button>
           <button className="btn bp" onClick={save}>출근 완료</button>
@@ -123,17 +149,19 @@ function CashOutModal({ modal, data, persist, close, toast }) {
   const [skMade, setSkMade] = useState(sh.skMade != null ? String(sh.skMade) : "");
   const [skMadeMemo, setSkMadeMemo] = useState(sh.skMadeMemo || "");
   const skMadeNum = (isSanctioned && skMade !== "") ? (parseFloat(skMade) || 0) : null;
-  // 무료/할인/재촬영 자가기록
+  // 무료/할인/재촬영 자가기록 — 종류 + 금액(원래 가격) 한 칸. '일부 받음'일 때만 받은€ 칸 추가.
   const [report, setReport] = useState(Array.isArray(sh.report) ? sh.report : []);
-  const [rKind, setRKind] = useState("free");
+  const [rKind, setRKind] = useState("reshoot");
   const [rFull, setRFull] = useState("");
   const [rPaid, setRPaid] = useState("");
+  const [rPartial, setRPartial] = useState(false);
   const [rNote, setRNote] = useState("");
   const addReport = () => {
     const full = parseFloat(rFull) || 0;
-    const paid = parseFloat(rPaid) || 0;
+    if (full <= 0) { toast("금액(€)을 먼저 넣어주세요"); return; }
+    const paid = rPartial ? (parseFloat(rPaid) || 0) : 0;
     setReport([...report, { kind: rKind, full, paid, note: (rNote || "").trim() }]);
-    setRFull(""); setRPaid(""); setRNote(""); setRKind("free");
+    setRFull(""); setRPaid(""); setRNote(""); setRPartial(false);
   };
   const removeReport = (i) => setReport(report.filter((_, ix) => ix !== i));
 
@@ -193,9 +221,55 @@ function CashOutModal({ modal, data, persist, close, toast }) {
   const cashNum = cash === "" ? null : (parseFloat(cash) || 0);
   const drawerDiff = (drawerExpected != null && cashNum != null) ? r2c(cashNum - drawerExpected) : null;
   const dState = drawerDiff == null ? null : (drawerDiff <= -2 ? "short" : (drawerDiff >= 2 ? "over" : "ok"));
-  const DIFF_REASONS = ["거스름돈 실수", "사장님·인정직원 인출", "모름"];
+  const DIFF_REASONS = ["거스름돈 실수", "사장님 인출", "모름"];
+
+  // ── 기록 폼 (경고 박스 안 / 하단 공용) — 종류 누르고 금액 하나만 넣으면 끝 ──
+  const recordInBox = !!(check && check.loaded && (unexplained >= 1 || report.length > 0));
+  const recordUI = (
+    <div>
+      <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
+        {REPORT_KINDS.map(x => (
+          <button key={x.k} onClick={()=>setRKind(x.k)}
+            style={{padding:"5px 9px",borderRadius:12,fontSize:11,cursor:"pointer",
+              border: rKind===x.k ? "1px solid #4dabf7" : "1px solid #ddd",
+              background: rKind===x.k ? "rgba(77,171,247,.12)" : "#fff",
+              color: rKind===x.k ? "#1971c2" : "#666", fontWeight: rKind===x.k ? 700 : 400}}>
+            {rKind===x.k ? "✓ " : ""}{x.label}
+          </button>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:6}}>
+        <input type="number" inputMode="decimal" value={rFull} onChange={e=>setRFull(e.target.value)} placeholder="금액 €" style={{width:84}} />
+        {recordInBox && unexplained >= 1 ? (
+          <button className="btn bs sm" onClick={()=>setRFull(String(Math.round(unexplained * 100) / 100))}>€{fmtE(unexplained)} 전부</button>
+        ) : null}
+        <label style={{fontSize:11,display:"flex",alignItems:"center",gap:4,cursor:"pointer",whiteSpace:"nowrap"}}>
+          <input type="checkbox" checked={rPartial} onChange={e=>{ setRPartial(e.target.checked); if (!e.target.checked) setRPaid(""); }} />
+          일부 받음
+        </label>
+        {rPartial ? <input type="number" inputMode="decimal" value={rPaid} onChange={e=>setRPaid(e.target.value)} placeholder="받은 €" style={{width:78}} /> : null}
+        <input type="text" value={rNote} onChange={e=>setRNote(e.target.value)} placeholder="메모(선택)" style={{width:100}} />
+        <button className="btn bp sm" onClick={addReport}>+ 기록</button>
+      </div>
+      {report.length > 0 ? (
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:4}}>
+          {report.map((r, i) => (
+            <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,background:"#fff",border:"1px solid #eee",borderRadius:6,padding:"4px 8px"}}>
+              <span>{reportKindLabel(r.kind)} · €{fmtE(r.full)}{(Number(r.paid)||0)>0?`→받음 €${fmtE(r.paid)}`:""} <span style={{color:"#2f9e44"}}>(설명 €{fmtE(Math.max((Number(r.full)||0)-(Number(r.paid)||0),0))})</span>{r.note ? ` · ${r.note}` : ""}</span>
+              <button className="btn bd sm" onClick={()=>removeReport(i)}>삭제</button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 
   const save = async () => {
+    // 차이가 남아 있으면 기록하거나 '확인' 체크를 해야 퇴근 완료 (퇴근 자체를 막지 않되 한 번은 응답)
+    if (check && check.loaded && unexplained >= 1 && !checkConfirmed) {
+      toast(`€${fmtE(unexplained)} 차이를 기록하거나 '확인했습니다'에 체크해주세요`);
+      return;
+    }
     const amt = cash === "" ? null : (parseFloat(cash) || 0);
     const updated = { ...sh, cashCount: amt, cashMemo: (memo || "").trim(), report };
     if (check && check.loaded) {
@@ -226,32 +300,32 @@ function CashOutModal({ modal, data, persist, close, toast }) {
         headers: { "Content-Type": "text/plain;charset=utf-8" }, redirect: "follow"
       }).catch(() => {});
     } catch (e) { /* 무시 */ }
-    toast(`✅ 퇴근 완료 (${modal.outTime})`);
+    toast(`퇴근 완료 (${modal.outTime})`);
     close();
   };
   return (
     <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className="modal">
-        <h3>🔴 퇴근 · 서랍 현금 입력</h3>
+        <h3>퇴근 · 서랍 현금 입력</h3>
         <div style={{fontSize:12,color:"#555",marginBottom:8}}>
           <span className={"badge " + (isOpening ? "bylw" : "bgrn")} style={{marginRight:6}}>{sh.slotType}</span>
           {sh.date} · 퇴근 {modal.outTime}
         </div>
         <div style={{fontSize:11,color:"#666",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12}}>
           {isOpening
-            ? "🔑 지금 서랍의 현금 총액을 세서 입력하세요. (클로징에게 넘기는 인계 금액)"
-            : "🌙 마감 서랍의 현금 총액을 세서 입력하세요. (오늘 마감 금액)"}
+            ? "지금 서랍의 현금 총액을 세서 입력하세요. (클로징에게 넘기는 인계 금액)"
+            : "마감 서랍의 현금 총액을 세서 입력하세요. (오늘 마감 금액)"}
         </div>
 
         {/* 실시간 대사 (오늘 루센트 vs 결제) */}
         {cState === "loading" ? (
-          <div style={{fontSize:11,color:"#888",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12}}>⏳ 오늘 루센트↔결제 실시간 대조 확인 중…</div>
+          <div style={{fontSize:11,color:"#888",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12}}>오늘 루센트↔결제 실시간 대조 확인 중…</div>
         ) : cState === "error" ? (
-          <div style={{fontSize:11,color:"#1971c2",background:"rgba(77,171,247,.08)",border:"1px solid rgba(77,171,247,.3)",borderRadius:8,padding:10,marginBottom:12}}>ℹ️ 실시간 확인 준비중 — 야간 대조로 잡혀요. 서랍 현금·기록은 그대로 입력하세요.</div>
+          <div style={{fontSize:11,color:"#1971c2",background:"rgba(77,171,247,.08)",border:"1px solid rgba(77,171,247,.3)",borderRadius:8,padding:10,marginBottom:12}}>실시간 확인 준비중 — 야간 대조로 잡혀요. 서랍 현금·기록은 그대로 입력하세요.</div>
         ) : (
           <div style={{border:`1.5px solid ${cColor}`, background: cState==="green"?"rgba(47,158,68,.06)":cState==="orange"?"rgba(232,89,12,.06)":"rgba(255,107,107,.06)", borderRadius:8, padding:10, marginBottom:12}}>
             <div style={{fontSize:12,fontWeight:700,color:cColor,marginBottom:3}}>
-              {cState==="green" ? "🟢 결제와 맞아요" : cState==="orange" ? "🟠 살짝 차이 (참고)" : "🔴 결제와 안 맞아요"}
+              {cState==="green" ? "결제와 맞아요" : cState==="orange" ? "살짝 차이 (참고)" : "결제와 안 맞아요"}
             </div>
             <div style={{fontSize:11,color:"#555",marginBottom:unexplained>=1?6:0}}>
               루센트 €{fmtE(check.lucent.eur)} ({check.lucent.count}건) vs 결제 €{fmtE(check.sumup.eur)} ({check.sumup.count}건)
@@ -260,15 +334,19 @@ function CashOutModal({ modal, data, persist, close, toast }) {
             {unexplained >= 1 ? (
               <>
                 <div style={{fontSize:11,fontWeight:600,color:cColor,marginBottom:6}}>
-                  ❓ €{fmtE(unexplained)} 안 맞아요 — {cState==="red" ? "안 넣은 결제/무료/재촬영이 있나요? 아래에 기록하면 줄어들어요." : "가격 추정 오차일 수 있어요. 확인만 해주세요."}
+                  €{fmtE(unexplained)} 안 맞아요 — {cState==="red" ? "재촬영·무료 있었죠? 종류 누르고 금액만 넣으면 초록불로 바뀌어요." : "가격 추정 오차일 수 있어요. 기록할 게 없으면 아래 확인만 체크해주세요."}
                 </div>
-                <label style={{fontSize:11,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+                {recordUI}
+                <label style={{fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:6,cursor:"pointer",marginTop:6,padding:"7px 9px",background:"rgba(0,0,0,.05)",borderRadius:6}}>
                   <input type="checkbox" checked={checkConfirmed} onChange={e=>setCheckConfirmed(e.target.checked)} />
-                  확인했습니다 (더 없음 / 사유 기록함)
+                  확인했습니다 — 더 기록할 것 없어요
                 </label>
               </>
             ) : (
-              <div style={{fontSize:11,color:"#2f9e44"}}>기록 설명까지 반영해 맞습니다 👍</div>
+              <>
+                <div style={{fontSize:11,color:"#2f9e44"}}>기록 설명까지 반영해 맞습니다</div>
+                {report.length > 0 ? <div style={{marginTop:6}}>{recordUI}</div> : null}
+              </>
             )}
           </div>
         )}
@@ -285,7 +363,7 @@ function CashOutModal({ modal, data, persist, close, toast }) {
           dState === "short" ? (
             <div style={{border:"1.5px solid #e03131",background:"rgba(255,107,107,.06)",borderRadius:8,padding:10,marginBottom:10}}>
               <div style={{fontSize:12,fontWeight:700,color:"#e03131",marginBottom:3}}>
-                🔴 기대 €{fmtE(drawerExpected)} vs 센 금액 €{fmtE(cashNum)} — €{fmtE(-drawerDiff)} 부족해요. 이유를 알려주세요
+                기대 €{fmtE(drawerExpected)} vs 센 금액 €{fmtE(cashNum)} — €{fmtE(-drawerDiff)} 부족해요. 이유를 알려주세요
               </div>
               <div style={{fontSize:10,color:"#888",marginBottom:8}}>기대 = {drawerBasis}</div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
@@ -304,18 +382,18 @@ function CashOutModal({ modal, data, persist, close, toast }) {
           ) : dState === "over" ? (
             <div style={{border:"1.5px solid #e8590c",background:"rgba(232,89,12,.06)",borderRadius:8,padding:10,marginBottom:10}}>
               <div style={{fontSize:12,fontWeight:700,color:"#e8590c",marginBottom:3}}>
-                🟠 기대 €{fmtE(drawerExpected)}보다 €{fmtE(drawerDiff)} 많아요
+                기대 €{fmtE(drawerExpected)}보다 €{fmtE(drawerDiff)} 많아요
               </div>
               <div style={{fontSize:10,color:"#888"}}>미기입 현금이 서랍에 있을 수 있어요 (기대 = {drawerBasis}).</div>
             </div>
           ) : (
             <div style={{border:"1.5px solid #2f9e44",background:"rgba(47,158,68,.06)",borderRadius:8,padding:10,marginBottom:10}}>
-              <div style={{fontSize:12,fontWeight:700,color:"#2f9e44"}}>🟢 서랍 맞아요 (기대 €{fmtE(drawerExpected)})</div>
+              <div style={{fontSize:12,fontWeight:700,color:"#2f9e44"}}>서랍 맞아요 (기대 €{fmtE(drawerExpected)})</div>
             </div>
           )
         ) : (isOpening && cashEurNow != null && sh.floatStart == null ? (
           <div style={{fontSize:10,color:"#888",background:"#f5f5f7",borderRadius:8,padding:8,marginBottom:10}}>
-            ℹ️ 시작 시재가 입력 안 돼 서랍 비교는 생략해요. 다음 출근 때 시재를 입력하면 자동으로 비교해줘요.
+            시작 시재가 입력 안 돼 서랍 비교는 생략해요. 다음 출근 때 시재를 입력하면 자동으로 비교해줘요.
           </div>
         ) : null)}
 
@@ -330,9 +408,9 @@ function CashOutModal({ modal, data, persist, close, toast }) {
         {/* 인정직원 슈킹 자진신고 — 오늘 만든 현금(안 찍은 현금). 서랍과 무관. */}
         {isSanctioned ? (
           <div style={{borderTop:"1px solid #eee",paddingTop:10,marginBottom:10}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#1971c2",marginBottom:2}}>🔒 오늘 만든 현금(안 찍은 현금) € (선택)</div>
+            <div style={{fontSize:12,fontWeight:700,color:"#1971c2",marginBottom:2}}>오늘 만든 현금(안 찍은 현금) € (선택)</div>
             <div style={{fontSize:10,color:"#888",marginBottom:8}}>
-              SumUp에 안 찍고 손님 현금으로 직접 받은 금액을 기록하세요. 서랍 계산과는 무관하고, 사장님 대사에서 인정몫으로 잡혀요.
+              SumUp에 안 찍고 손님 현금으로 직접 받은 금액을 기록하세요. 서랍 계산과는 무관하고, 사장님 대사에 자동으로 반영돼요.
             </div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
               <input type="number" inputMode="decimal" value={skMade} onChange={e=>setSkMade(e.target.value)} placeholder="오늘 만든 €" style={{width:100}} />
@@ -341,39 +419,14 @@ function CashOutModal({ modal, data, persist, close, toast }) {
           </div>
         ) : null}
 
-        {/* 무료/할인/재촬영 자가기록 */}
-        <div style={{borderTop:"1px solid #eee",paddingTop:10}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#b8860b",marginBottom:2}}>📸 오늘 무료/할인/재촬영 기록 (선택)</div>
-          <div style={{fontSize:10,color:"#888",marginBottom:8}}>사진은 찍혔는데 SumUp 결제가 €0이거나 일부만 된 경우를 적어주세요. (원가 → 실제 받은 금액)</div>
-          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:6}}>
-            {REPORT_KINDS.map(x => (
-              <button key={x.k} onClick={()=>setRKind(x.k)}
-                style={{padding:"4px 8px",borderRadius:12,fontSize:11,cursor:"pointer",
-                  border: rKind===x.k ? "1px solid #4dabf7" : "1px solid #ddd",
-                  background: rKind===x.k ? "rgba(77,171,247,.12)" : "#fff",
-                  color: rKind===x.k ? "#1971c2" : "#666", fontWeight: rKind===x.k ? 700 : 400}}>
-                {x.label}
-              </button>
-            ))}
+        {/* 무료/할인/재촬영 자가기록 — 차이 경고 박스에 이미 들어가 있으면 여기선 숨김 */}
+        {!recordInBox ? (
+          <div style={{borderTop:"1px solid #eee",paddingTop:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#b8860b",marginBottom:2}}>오늘 무료/할인/재촬영 기록 (선택)</div>
+            <div style={{fontSize:10,color:"#888",marginBottom:8}}>사진 찍혔는데 결제가 안 됐거나 덜 된 경우 — 종류 누르고 금액(원래 가격)만 넣으면 돼요.</div>
+            {recordUI}
           </div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
-            <input type="number" value={rFull} onChange={e=>setRFull(e.target.value)} placeholder="원가 €" style={{width:78}} />
-            <span style={{color:"#888"}}>→</span>
-            <input type="number" value={rPaid} onChange={e=>setRPaid(e.target.value)} placeholder="받은 €" style={{width:78}} />
-            <input type="text" value={rNote} onChange={e=>setRNote(e.target.value)} placeholder="메모(선택)" style={{width:110}} />
-            <button className="btn bp sm" onClick={addReport}>+ 추가</button>
-          </div>
-          {report.length > 0 ? (
-            <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:4}}>
-              {report.map((r, i) => (
-                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,background:"#f5f5f7",borderRadius:6,padding:"4px 8px"}}>
-                  <span>{reportKindLabel(r.kind)} · €{fmtE(r.full)}→€{fmtE(r.paid)} <span style={{color:"#2f9e44"}}>(할인 €{fmtE(Math.max((Number(r.full)||0)-(Number(r.paid)||0),0))})</span>{r.note ? ` · ${r.note}` : ""}</span>
-                  <button className="btn bd sm" onClick={()=>removeReport(i)}>삭제</button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        ) : null}
 
         <div className="mf">
           <button className="btn bs" onClick={close}>취소</button>

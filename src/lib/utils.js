@@ -109,12 +109,13 @@ function needsAttention(sh) {
 }
 
 const REPORT_KINDS = [
-  { k: "free",    label: "🎁 프리샷(무료)" },
-  { k: "partial", label: "🎟 부분쿠폰" },
-  { k: "reshoot", label: "🔄 재촬영" },
+  { k: "reshoot", label: "재촬영 (이슈 발생)" },
+  { k: "free",    label: "스탬프쿠폰 (무료촬영)" },
   { k: "etc",     label: "기타" }
 ];
-const reportKindLabel = (k) => (REPORT_KINDS.find(x => x.k === k) || { label: k }).label;
+// 과거 기록 호환: 버튼에서 빠진 종류도 라벨은 유지 (일부 받음은 이제 체크박스로 처리)
+const LEGACY_KIND_LABELS = { partial: "부분쿠폰" };
+const reportKindLabel = (k) => (REPORT_KINDS.find(x => x.k === k) || { label: LEGACY_KIND_LABELS[k] || k }).label;
 
 
 // ※ calcMonthData는 src/lib/recon.js로 이동 (누락 귀속 attributeGap 필요 + 순환 import 방지)
