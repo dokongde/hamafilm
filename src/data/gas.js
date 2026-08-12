@@ -98,8 +98,35 @@ const GS = {
   SAVING: false,
   LAST_SAVE_AT: 0,
   LAST_USER_INTERACTION: 0,
-  LAST_SYNCED_JSON: ""
+  LAST_SYNCED_JSON: "",
+  PENDING: false // 서버 전송 실패로 기기에만 보관된 변경이 있음 (연결 복구 시 자동 재전송)
 };
+
+// ===== 미전송 변경 보관 (저장 실패 시 유실 방지) =====
+// 저장은 전체 스냅샷 단위라, 마지막 실패 스냅샷 하나만 보관하면 됨 (최신 의도가 항상 포함).
+const PENDING_KEY = "hamafilm_pending_v1";
+const PENDING_MAX_AGE = 24 * 3600 * 1000; // 24시간 지난 미전송본은 폐기 (다른 기기 최신 데이터를 옛날 것으로 덮지 않게)
+function setPendingSnapshot(d) {
+  GS.PENDING = true;
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify({ ts: Date.now(), data: d })); } catch (e) {}
+}
+function clearPendingSnapshot() {
+  GS.PENDING = false;
+  try { localStorage.removeItem(PENDING_KEY); } catch (e) {}
+}
+function loadPendingSnapshot() {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    if (!raw) { GS.PENDING = false; return null; }
+    const p = JSON.parse(raw);
+    if (!p || !p.data || !p.ts || (Date.now() - p.ts) > PENDING_MAX_AGE) {
+      clearPendingSnapshot();
+      return null;
+    }
+    GS.PENDING = true;
+    return p.data;
+  } catch (e) { return null; }
+}
 
 // ===== 다중 시트 분산 저장 =====
 // 각 데이터 종류를 별도 시트에 저장하여 50KB 한계 회피
@@ -203,38 +230,26 @@ function splitData(d) {
   return buckets;
 }
 
-async function saveData(d){
-  GS.SAVING = true;
+// 1회 전송 시도 — 성공 시 true, 실패 시 GS.LAST_ERROR 세팅 후 false
+async function saveOnce(d){
   try {
     const buckets = splitData(d);
-
-    // 각 시트별 JSON 만들기
-    const payload = {
-      multi: true,
-      buckets: {}
-    };
+    const payload = { multi: true, buckets: {} };
     Object.entries(buckets).forEach(([name, content]) => {
       payload.buckets[name] = JSON.stringify(content);
     });
-
     const res = await fetch(GAS_URL, {
       method: "POST",
       body: JSON.stringify(payload),
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       redirect: "follow"
     });
-
     if (res.ok) {
       const txt = await res.text();
       try {
         const result = JSON.parse(txt);
-        if (result.ok) {
-          GS.STORAGE_MODE = "shared";
-          GS.LAST_ERROR = "";
-          GS.LAST_SAVE_AT = Date.now();
-          try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
-          return true;
-        }
+        if (result.ok) return true;
+        GS.LAST_ERROR = "서버 거부: " + txt.slice(0, 100);
       } catch(e) {
         GS.LAST_ERROR = "응답 파싱 실패: " + txt.slice(0, 100);
       }
@@ -244,15 +259,41 @@ async function saveData(d){
   } catch(e) {
     GS.LAST_ERROR = e.message || String(e);
     console.error("GAS save error", e);
+  }
+  return false;
+}
+
+async function saveData(d){
+  GS.SAVING = true;
+  try {
+    // 일시적 버벅임(GAS 콜드스타트·와이파이 출렁임) 대비 자동 재시도: 즉시 → 1초 → 2.5초
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, attempt === 1 ? 1000 : 2500));
+      if (await saveOnce(d)) {
+        GS.STORAGE_MODE = "shared";
+        GS.LAST_ERROR = "";
+        GS.LAST_SAVE_AT = Date.now();
+        clearPendingSnapshot();
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
+        return true;
+      }
+    }
   } finally {
     GS.SAVING = false;
   }
-  // 로컬 폴백
-  try {
-    GS.STORAGE_MODE = "local";
-    localStorage.setItem(STORE_KEY, JSON.stringify(d));
-  } catch(e) {}
+  // 최종 실패 → 로컬 보관 + 미전송 표시 (연결 복구 시 자동 재전송, 유실 없음)
+  GS.STORAGE_MODE = "local";
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
+  setPendingSnapshot(d);
   return false;
+}
+
+// 미전송 스냅샷 재전송 시도 — 성공하면 true (pending 해제됨)
+async function flushPending(){
+  if (GS.SAVING) return false;
+  const pending = loadPendingSnapshot();
+  if (!pending) return false;
+  return await saveData(pending);
 }
 
 async function fetchAll() {
@@ -300,4 +341,4 @@ async function savePin(p){
   try { localStorage.setItem(PIN_KEY, p); } catch(e) {}
 }
 
-export { DEFAULT_PIN, STORE_KEY, PIN_KEY, SESSION_KEY, DEFAULT_DATA, GAS_URL, saveSession, clearSession, loadSession, notifyLoginEvent, GS, BUCKETS, KEY_TO_BUCKET, splitData, loadData, saveData, fetchAll, loadPin, savePin };
+export { DEFAULT_PIN, STORE_KEY, PIN_KEY, SESSION_KEY, DEFAULT_DATA, GAS_URL, saveSession, clearSession, loadSession, notifyLoginEvent, GS, BUCKETS, KEY_TO_BUCKET, splitData, loadData, saveData, fetchAll, loadPin, savePin, flushPending, loadPendingSnapshot };

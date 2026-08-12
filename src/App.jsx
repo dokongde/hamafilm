@@ -9,7 +9,7 @@ import { FixedTab } from "./tabs/FixedTab";
 import { StaffMgmtTab } from "./tabs/StaffMgmtTab";
 import { StaffView } from "./StaffView";
 import { ModalHost } from "./components/ModalHost";
-import { DEFAULT_PIN, STORE_KEY, PIN_KEY, SESSION_KEY, DEFAULT_DATA, GAS_URL, saveSession, clearSession, loadSession, notifyLoginEvent, GS, splitData, loadData, saveData, fetchAll, loadPin, savePin } from "./data/gas";
+import { DEFAULT_PIN, STORE_KEY, PIN_KEY, SESSION_KEY, DEFAULT_DATA, GAS_URL, saveSession, clearSession, loadSession, notifyLoginEvent, GS, splitData, loadData, saveData, fetchAll, loadPin, savePin, flushPending, loadPendingSnapshot } from "./data/gas";
 import { EditShiftModal, AddShiftModal, AddFixedModal, AddVacModal, GenFixedModal } from "./components/modals/shift";
 import { PinChange, AddStaffModal } from "./components/modals/staff";
 import { AddSalesModal, CashOutModal } from "./components/modals/sales";
@@ -104,7 +104,16 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const d = await loadData();
+      // 지난번 저장 실패로 이 기기에 보관된 미전송 변경이 있으면 그게 최신 — 서버본 대신 쓰고 재전송 시도
+      const pending = loadPendingSnapshot();
+      let d;
+      if (pending) {
+        d = pending;
+        GS.STORAGE_MODE = "local";
+        flushPending().then(ok => { if (ok) { setStorageMode(GS.STORAGE_MODE); setLastError(GS.LAST_ERROR); } });
+      } else {
+        d = await loadData();
+      }
       setData(d || DEFAULT_DATA);
       const p = await loadPin();
       setPin(p);
@@ -161,6 +170,13 @@ export default function App() {
     const interval = setInterval(async () => {
       // 1. 저장 중 또는 방금 저장한 경우 (30초 이내)
       if (GS.SAVING || (Date.now() - GS.LAST_SAVE_AT < 30000)) return;
+      // 미전송 변경 재전송은 화면과 무관하니 모달·입력 중이어도 시도 (성공 전엔 아래에서 서버 덮어쓰기 차단)
+      if (GS.PENDING) {
+        const ok = await flushPending();
+        setStorageMode(GS.STORAGE_MODE);
+        setLastError(GS.LAST_ERROR);
+        if (!ok) return;
+      }
       // 2. 모달이 열려있을 때
       if (modal !== null) return;
       // 3. input/textarea/select/button에 포커스 있을 때
@@ -214,6 +230,17 @@ export default function App() {
   // 수동 새로고침 (다른 사람이 입력한 거 빨리 보고 싶을 때)
   const manualRefresh = useCallback(async () => {
     try {
+      // 미전송 변경 먼저 올리고, 실패하면 서버본으로 덮어쓰지 않음
+      if (GS.PENDING) {
+        const ok = await flushPending();
+        setStorageMode(GS.STORAGE_MODE);
+        setLastError(GS.LAST_ERROR);
+        if (!ok) {
+          setToast("아직 안 올라간 변경이 있어요 — 인터넷 연결을 확인해주세요");
+          setTimeout(() => setToast(""), 3000);
+          return;
+        }
+      }
       const d = await loadData();
       if (d) {
         GS.LAST_SYNCED_JSON = JSON.stringify(d);
@@ -233,8 +260,8 @@ export default function App() {
     GS.LAST_SYNCED_JSON = JSON.stringify(nd); // 자기가 저장한 건 동기화 비교 기준에 반영
     const ok = await saveData(nd);
     if (!ok) {
-      // 저장 실패 → 사용자에게 즉시 알림 (자동 사라짐 방지)
-      setToast("⚠️ 저장 실패! 인터넷 확인 후 다시 시도하세요");
+      // 저장 실패 → 기기에 보관됨 + 자동 재전송 예정 (유실 아님)
+      setToast("연결이 불안정해요 — 입력 내용은 기기에 보관했고, 연결되면 자동으로 올라가요");
       setTimeout(() => setToast(""), 5000);
     }
     setStorageMode(GS.STORAGE_MODE);

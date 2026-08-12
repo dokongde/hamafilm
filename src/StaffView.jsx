@@ -111,7 +111,7 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
                 fontWeight:600,
                 cursor: "pointer"
               }}>
-              {storageMode==="shared" ? "🟢 공유됨" : storageMode==="local" ? "🔴 로컬만" : "⚪ 연결중"}
+              {storageMode==="shared" ? "공유됨" : storageMode==="local" ? "저장 대기중" : "연결중"}
             </span>
             <button className="btn bs sm" onClick={manualRefresh} title="새로고침">🔄</button>
             <button className="btn bs sm" onClick={()=>setModal({type:"pin"})}>🔐 관리자</button>
