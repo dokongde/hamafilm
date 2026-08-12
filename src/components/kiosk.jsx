@@ -120,20 +120,20 @@ function KioskView({ data, persist, setModal, toast, onExit }) {
       <div className="tb">
         <div className="logo">💙 HAMAFILM<small>출퇴근</small></div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{fontSize:10,color:"#2f9e44",fontWeight:600,padding:"3px 8px",borderRadius:10,background:"rgba(46,213,115,.12)"}}>🏪 매장 기기</span>
-          <button className="btn bs sm" onClick={onExit} title="사장님 코드 필요">🔧 나가기</button>
+          <span style={{fontSize:10,color:"#2f9e44",fontWeight:600,padding:"3px 8px",borderRadius:10,background:"rgba(46,213,115,.12)"}}>매장 기기</span>
+          <button className="btn bs sm" onClick={onExit} title="사장님 코드 필요">나가기</button>
         </div>
       </div>
       <div className="pg">
         {!selId ? (
           <div>
-            <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>출근 · 퇴근 👋</div>
+            <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>출근 · 퇴근</div>
             <div style={{fontSize:12,color:"#888",marginBottom:16}}>본인 이름을 선택하세요.</div>
             <div className="spc">
               {staff.map(s => (
                 <div key={s.id} className="sc" onClick={()=>pickStaff(s)}>
                   <div className="sav" style={{background:s.color}}>{s.name.slice(0,1)}</div>
-                  <div className="snm">{s.name}{s.pin ? <span style={{fontSize:9,marginLeft:3,color:"#888"}}>🔒</span> : null}</div>
+                  <div className="snm">{s.name}</div>
                 </div>
               ))}
             </div>
@@ -175,13 +175,18 @@ function KioskView({ data, persist, setModal, toast, onExit }) {
                       <span className={"badge " + (s.slotType==="오프닝"?"bylw":"bgrn")}>{s.slotType}</span>
                       <span className="mn" style={{fontSize:12,color:"#888"}}>{s.start}~{s.end}</span>
                       {checkedIn ? <span className="mn" style={{fontSize:11,color:"#20a060"}}>{s.actualStart}~{s.actualEnd||"..."}</span> : null}
-                      {s.cashCount != null ? <span style={{fontSize:11,color:"#1971c2"}}>💶 €{fmtE(s.cashCount)}</span> : null}
+                      {s.cashCount != null ? <span style={{fontSize:11,color:"#1971c2"}}>€{fmtE(s.cashCount)}</span> : null}
                     </div>
-                    <div>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
                       {!checkedIn ? (
-                        <button className="btn bp" onClick={()=>doCheckIn(s)}>🟢 출근</button>
+                        <button className="btn bp" onClick={()=>doCheckIn(s)}>출근</button>
                       ) : !checkedOut ? (
-                        <button className="btn bp" onClick={()=>doCheckOut(s)}>🔴 퇴근</button>
+                        <>
+                          <button className="btn bs" onClick={()=>setModal({ type:"quickReport", shift:s, staffId:selId, staffName: sel?.name||"" })}>
+                            일 기록{Array.isArray(s.report) && s.report.length ? ` ${s.report.length}건` : ""}
+                          </button>
+                          <button className="btn bp" onClick={()=>doCheckOut(s)}>퇴근</button>
+                        </>
                       ) : (
                         <span style={{fontSize:13,color:"#20a060",fontWeight:700}}>✓ 완료</span>
                       )}
