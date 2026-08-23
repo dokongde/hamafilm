@@ -99,13 +99,15 @@ const GS = {
   LAST_SAVE_AT: 0,
   LAST_USER_INTERACTION: 0,
   LAST_SYNCED_JSON: "",
+  BASELINE_JSON: "",     // 이 기기가 마지막으로 서버와 확인한 상태 (dirty 버킷 판정 + 3-way 병합 기준)
+  LAST_SAVED_DATA: null, // 마지막 저장 성공 시 실제 서버로 간 데이터 (sales 병합 결과 포함)
   PENDING: false // 서버 전송 실패로 기기에만 보관된 변경이 있음 (연결 복구 시 자동 재전송)
 };
 
 // ===== 미전송 변경 보관 (저장 실패 시 유실 방지) =====
 // 저장은 전체 스냅샷 단위라, 마지막 실패 스냅샷 하나만 보관하면 됨 (최신 의도가 항상 포함).
 const PENDING_KEY = "hamafilm_pending_v1";
-const PENDING_MAX_AGE = 24 * 3600 * 1000; // 24시간 지난 미전송본은 폐기 (다른 기기 최신 데이터를 옛날 것으로 덮지 않게)
+const PENDING_MAX_AGE = 2 * 3600 * 1000; // 2시간 지난 미전송본은 폐기 (다른 기기 최신 데이터를 옛날 것으로 덮지 않게)
 function setPendingSnapshot(d) {
   GS.PENDING = true;
   try { localStorage.setItem(PENDING_KEY, JSON.stringify({ ts: Date.now(), data: d })); } catch (e) {}
@@ -183,6 +185,7 @@ async function loadData(){
         if (!merged[k]) merged[k] = [];
       });
       if (!merged.settings) merged.settings = {};
+      GS.BASELINE_JSON = JSON.stringify(merged); // 서버와 맞춘 시점 기록 (이후 저장은 이 기준과 다른 버킷만 전송)
       return merged;
     }
 
@@ -190,7 +193,9 @@ async function loadData(){
       // 옛날 단일 시트 형식 (호환성)
       try {
         const parsed = JSON.parse(j.data);
-        return parsed[STORE_KEY] || null;
+        const d = parsed[STORE_KEY] || null;
+        if (d) GS.BASELINE_JSON = JSON.stringify(d);
+        return d;
       } catch(e) { return null; }
     }
     return null;
@@ -230,12 +235,92 @@ function splitData(d) {
   return buckets;
 }
 
+// 이 기기가 마지막으로 서버와 확인한 상태 (없으면 마지막 저장 성공본으로 폴백)
+function getBaseline() {
+  if (GS.BASELINE_JSON) {
+    try { return JSON.parse(GS.BASELINE_JSON); } catch (e) {}
+  }
+  try {
+    const r = localStorage.getItem(STORE_KEY);
+    if (r) return JSON.parse(r);
+  } catch (e) {}
+  return null;
+}
+
+// 저장 직전 서버의 sales만 가볍게 가져오기 (병합용) — 실패 시 null
+async function fetchServerSales() {
+  try {
+    const res = await fetch(GAS_URL, { method: "GET", redirect: "follow" });
+    if (!res.ok) return null;
+    const j = await res.json();
+    if (j && j.multi && j.data && j.data.sales != null) {
+      const parsed = JSON.parse(j.data.sales || "{}");
+      const arr = Array.isArray(parsed) ? parsed : (parsed.sales || []);
+      return Array.isArray(arr) ? arr : [];
+    }
+  } catch (e) {}
+  return null;
+}
+
+// sales 3-way 병합 (로컬 / baseline / 서버) — 날짜가 키.
+// 이 기기가 실제로 바꾼 행만 반영하고, 서버에만 있는 행(야간 자동입력 등)은 보존한다.
+// - 이 기기가 안 건드린 행 → 서버 버전 승 (자동입력이 채운 kd/nx 등 유지)
+// - 이 기기가 수정한 행 → 로컬 승, 단 로컬에 없는 필드(kd/nx/rc 등)는 서버에서 보충
+// - 서버에만 있는 행 → baseline에도 없으면 신규(자동입력) → 보존 / baseline에 있으면 이 기기가 지운 것 → 삭제 반영
+// - 로컬에만 있는 행 → baseline과 같으면 다른 기기가 지운 것 → 삭제 존중, 다르면 신규/수정 → 유지
+function sameRow(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function mergeSales(localArr, baseArr, serverArr) {
+  const L = new Map(), B = new Map(), S = new Map();
+  (Array.isArray(localArr) ? localArr : []).forEach(r => { if (r && r.date) L.set(r.date, r); });
+  (Array.isArray(baseArr) ? baseArr : []).forEach(r => { if (r && r.date) B.set(r.date, r); });
+  (Array.isArray(serverArr) ? serverArr : []).forEach(r => { if (r && r.date) S.set(r.date, r); });
+  const out = [];
+  new Set([...L.keys(), ...S.keys()]).forEach(date => {
+    const l = L.get(date), b = B.get(date), s = S.get(date);
+    if (l && s) {
+      if (b && sameRow(l, b)) out.push({ ...s });
+      else { const m = { ...s, ...l }; if (s.id != null) m.id = s.id; out.push(m); }
+    } else if (l && !s) {
+      if (!(b && sameRow(l, b))) out.push({ ...l });
+    } else if (!l && s) {
+      if (!b) out.push({ ...s });
+    }
+  });
+  out.sort((a, b2) => String(a.date).localeCompare(String(b2.date)));
+  // id 중복/누락 정리 (기기 간 같은 id를 다른 날짜에 붙였을 수 있음)
+  let maxId = 0;
+  out.forEach(r => { const n = Number(r.id) || 0; if (n > maxId) maxId = n; });
+  const seen = new Set();
+  out.forEach(r => { const n = Number(r.id) || 0; if (!n || seen.has(n)) { maxId += 1; r.id = maxId; } else seen.add(n); });
+  return out;
+}
+
 // 1회 전송 시도 — 성공 시 true, 실패 시 GS.LAST_ERROR 세팅 후 false
+// ⚠️ 전체 덮어쓰기 금지: baseline 대비 바뀐 버킷만 전송한다.
+//   (예전엔 매 저장마다 모든 버킷을 통째로 올려서, 오래 열려있던 기기가
+//    저장하면 그 사이 자동입력된 매출 날짜들이 통째로 사라지는 사고가 반복됐음)
 async function saveOnce(d){
   try {
+    const baseline = getBaseline();
     const buckets = splitData(d);
-    const payload = { multi: true, buckets: {} };
+    const baseBuckets = baseline ? splitData(baseline) : null;
+    const dirty = {};
     Object.entries(buckets).forEach(([name, content]) => {
+      if (!baseBuckets || JSON.stringify(baseBuckets[name]) !== JSON.stringify(content)) dirty[name] = content;
+    });
+    if (!Object.keys(dirty).length) { GS.LAST_SAVED_DATA = d; return true; } // 보낼 변경 없음
+    // sales 버킷은 서버본과 3-way 병합 후 전송 (자동입력 행 보존 + 삭제 존중)
+    let effective = d;
+    if (dirty.sales) {
+      const serverSales = await fetchServerSales();
+      if (serverSales) {
+        const merged = mergeSales(d.sales, baseline ? baseline.sales : null, serverSales);
+        effective = { ...d, sales: merged };
+        dirty.sales = { ...dirty.sales, sales: merged };
+      }
+    }
+    const payload = { multi: true, buckets: {} };
+    Object.entries(dirty).forEach(([name, content]) => {
       payload.buckets[name] = JSON.stringify(content);
     });
     const res = await fetch(GAS_URL, {
@@ -248,7 +333,11 @@ async function saveOnce(d){
       const txt = await res.text();
       try {
         const result = JSON.parse(txt);
-        if (result.ok) return true;
+        if (result.ok) {
+          GS.LAST_SAVED_DATA = effective;
+          GS.BASELINE_JSON = JSON.stringify(effective);
+          return true;
+        }
         GS.LAST_ERROR = "서버 거부: " + txt.slice(0, 100);
       } catch(e) {
         GS.LAST_ERROR = "응답 파싱 실패: " + txt.slice(0, 100);
@@ -274,16 +363,17 @@ async function saveData(d){
         GS.LAST_ERROR = "";
         GS.LAST_SAVE_AT = Date.now();
         clearPendingSnapshot();
-        try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
+        // STORE_KEY = 마지막 서버 확인본 (sales 병합 결과 포함) — 오프라인 폴백 + baseline 폴백 겸용
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(GS.LAST_SAVED_DATA || d)); } catch(e) {}
         return true;
       }
     }
   } finally {
     GS.SAVING = false;
   }
-  // 최종 실패 → 로컬 보관 + 미전송 표시 (연결 복구 시 자동 재전송, 유실 없음)
+  // 최종 실패 → 미전송 스냅샷으로만 보관 (연결 복구 시 자동 재전송, 유실 없음)
+  // ⚠️ STORE_KEY는 덮지 않는다 — STORE_KEY는 "서버와 확인된 상태"여야 baseline 폴백이 정확함.
   GS.STORAGE_MODE = "local";
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(d)); } catch(e) {}
   setPendingSnapshot(d);
   return false;
 }
