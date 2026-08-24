@@ -134,6 +134,80 @@ function CashInModal({ modal, data, persist, close, toast }) {
   );
 }
 
+// 근무 중 즉시 기록 — 재촬영·무료촬영이 생긴 그 자리에서 바로 남김. 퇴근 모달이 이 기록을 그대로 이어받아
+// 실시간 대조(설명 금액)에 자동 합산되므로, 퇴근 때는 확인만 하면 됨.
+function QuickReportModal({ modal, data, persist, close, toast }) {
+  const shId = modal.shift.id;
+  const sh = (data.shifts||[]).find(x => x.id === shId) || modal.shift; // 저장 후에도 최신 레코드 참조
+  const report = Array.isArray(sh.report) ? sh.report : [];
+  const [rKind, setRKind] = useState("reshoot");
+  const [rFull, setRFull] = useState("");
+  const [rPaid, setRPaid] = useState("");
+  const [rPartial, setRPartial] = useState(false);
+  const [rNote, setRNote] = useState("");
+  const add = async () => {
+    const full = parseFloat(rFull) || 0;
+    if (full <= 0) { toast("금액(€)을 먼저 넣어주세요"); return; }
+    const paid = rPartial ? (parseFloat(rPaid) || 0) : 0;
+    const entry = { kind: rKind, full, paid, note: (rNote || "").trim() };
+    await persist({ ...data, shifts: (data.shifts||[]).map(x => x.id === shId ? { ...x, report: [...(Array.isArray(x.report) ? x.report : []), entry] } : x) });
+    setRFull(""); setRPaid(""); setRNote(""); setRPartial(false);
+    toast("기록 저장됨 — 퇴근 때 자동으로 반영돼요");
+  };
+  const del = async (i) => {
+    await persist({ ...data, shifts: (data.shifts||[]).map(x => x.id === shId ? { ...x, report: report.filter((_, ix) => ix !== i) } : x) });
+  };
+  return (
+    <div className="ov" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="modal" style={{maxWidth:430}}>
+        <h3>오늘 일 기록</h3>
+        <div style={{fontSize:12,color:"#555",marginBottom:8}}>
+          <span className={"badge " + (sh.slotType==="오프닝"?"bylw":"bgrn")} style={{marginRight:6}}>{sh.slotType}</span>
+          {modal.staffName} · {sh.date}
+        </div>
+        <div style={{fontSize:11,color:"#666",background:"#f5f5f7",borderRadius:8,padding:10,marginBottom:12,lineHeight:1.5}}>
+          재촬영·무료촬영이 생기면 <strong>그 자리에서 바로</strong> 남겨두세요. 퇴근할 때 자동으로 정리돼 있어서 기억할 필요 없어요.
+        </div>
+        <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+          {REPORT_KINDS.map(x => (
+            <button key={x.k} onClick={()=>setRKind(x.k)}
+              style={{padding:"6px 10px",borderRadius:12,fontSize:12,cursor:"pointer",
+                border: rKind===x.k ? "1px solid #4dabf7" : "1px solid #ddd",
+                background: rKind===x.k ? "rgba(77,171,247,.12)" : "#fff",
+                color: rKind===x.k ? "#1971c2" : "#666", fontWeight: rKind===x.k ? 700 : 400}}>
+              {rKind===x.k ? "✓ " : ""}{x.label}
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
+          <input type="number" inputMode="decimal" value={rFull} onChange={e=>setRFull(e.target.value)} placeholder="금액 €" style={{width:90}} />
+          <label style={{fontSize:11,display:"flex",alignItems:"center",gap:4,cursor:"pointer",whiteSpace:"nowrap"}}>
+            <input type="checkbox" checked={rPartial} onChange={e=>{ setRPartial(e.target.checked); if (!e.target.checked) setRPaid(""); }} />
+            일부 받음
+          </label>
+          {rPartial ? <input type="number" inputMode="decimal" value={rPaid} onChange={e=>setRPaid(e.target.value)} placeholder="받은 €" style={{width:80}} /> : null}
+          <input type="text" value={rNote} onChange={e=>setRNote(e.target.value)} placeholder="메모(선택)" style={{width:110}} />
+          <button className="btn bp sm" onClick={add}>바로 저장</button>
+        </div>
+        {report.length > 0 ? (
+          <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#888"}}>오늘 남긴 기록 {report.length}건</div>
+            {report.map((r, i) => (
+              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,background:"#f5f5f7",borderRadius:6,padding:"5px 8px"}}>
+                <span>{reportKindLabel(r.kind)} · €{fmtE(r.full)}{(Number(r.paid)||0)>0?` (받음 €${fmtE(r.paid)})`:""}{r.note ? ` · ${r.note}` : ""}</span>
+                <button className="btn bd sm" onClick={()=>del(i)}>삭제</button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="mf">
+          <button className="btn bp" onClick={close}>닫기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CashOutModal({ modal, data, persist, close, toast }) {
   const sh = modal.shift;
   const isOpening = sh.slotType === "오프닝";
@@ -437,4 +511,4 @@ function CashOutModal({ modal, data, persist, close, toast }) {
   );
 }
 
-export { AddSalesModal, CashInModal, CashOutModal };
+export { AddSalesModal, CashInModal, CashOutModal, QuickReportModal };

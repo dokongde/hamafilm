@@ -8,12 +8,8 @@ import { attributeGap } from "../lib/recon";
 // 데이터 계약(읽기전용: rc/kd/nx, 이 앱 저장: note/report/cashCount/adm, 레거시 보존: fs/cc)은 그대로 — 표시만 재구성.
 // 미설명은 attributeGap(lib/recon.js)으로 누락(비인정 몫=매출 아님)과 인정 몫(슈킹)으로 분해 — 판정은 누락 기준.
 function ReconTab({ data, persist }) {
-  // 날짜 기본값: 카세북(kd) 있는 최신 날 → 없으면 rc 최신 날 → 오늘
-  const kdDates = (data.sales||[]).filter(s => s.kd).map(s => s.date).sort();
-  const rcDates = (data.sales||[]).filter(s => s.rc).map(s => s.date).sort();
-  const defaultDate = kdDates.length ? kdDates[kdDates.length-1]
-    : (rcDates.length ? rcDates[rcDates.length-1] : todayStr());
-  const [rcDate, setRcDate] = useState(defaultDate);
+  // 날짜 기본값: 항상 오늘 (kd는 월말 CSV라 과거에 머물러 혼란 — 과거는 ◀/달력으로 이동)
+  const [rcDate, setRcDate] = useState(todayStr());
   const [noteInput, setNoteInput] = useState(""); // 그날 메모(재촬영·특이사항)
   const [admForm, setAdmForm] = useState({ kind: "reshoot", full: "", paid: "", note: "" }); // 관리자 사후 설명 입력폼
   const [admEdit, setAdmEdit] = useState(null); // 수정 중인 설명 index (null = 새로 추가)
