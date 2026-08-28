@@ -1,5 +1,5 @@
 import { hessenHols, DOW_KO, getSlots, dowKo, todayStr, curYM, getCarryIn, fmtE, nid, shiftHours, openVertrag } from "./lib/utils";
-import { GAS_URL, saveSession, clearSession, notifyLoginEvent } from "./data/gas";
+import { GAS_URL, saveSession, clearSession, notifyLoginEvent, splitData } from "./data/gas";
 import { StaffPushCard } from "./components/push-cards";
 
   // ─── 직원 화면 ───
@@ -39,7 +39,7 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
         setSvSel(null);
         return;
       }
-      await persist({...data, shifts: [...(data.shifts||[]), {
+      const ok = await persist({...data, shifts: [...(data.shifts||[]), {
         id: nid(data.shifts||[]),
         staffId: svSid, date: svDate,
         start: slot.start, end: slot.end,
@@ -47,7 +47,8 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
         memo: "", source: "share"
       }]});
       setSvSel(null);
-      showToast("✅ 등록 완료!");
+      // 저장 실패 시 persist가 띄운 실패 안내를 성공 토스트로 덮지 않는다
+      if (ok) showToast("✅ 등록 완료!");
     };
 
     const doCancel = async (id) => {
@@ -73,12 +74,12 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
         cancelledAt: new Date().toISOString(),
         viewed: false
       };
-      await persist({
+      const ok = await persist({
         ...data,
         shifts: (data.shifts||[]).filter(s => s.id !== id),
         cancellations: [...(data.cancellations||[]), cancelRecord]
       });
-      showToast("취소 완료 — 사장님께 전달됨");
+      if (ok) showToast("취소 완료 — 사장님께 전달됨");
     };
 
     return (
@@ -91,15 +92,41 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
                 let info = "📊 저장소 상태\n\n";
                 info += "모드: " + storageMode + "\n";
                 info += "에러: " + (lastError || "(없음)") + "\n\n";
-                info += "🔍 직접 테스트 중...\n";
+                info += "🔍 읽기(GET) 테스트 중...\n";
                 try {
                   const res = await fetch(GAS_URL, { method: "GET" });
                   info += "응답코드: " + res.status + "\n";
                   const txt = await res.text();
-                  info += "응답내용 (처음 200자):\n" + txt.slice(0, 200);
+                  info += "응답내용 (처음 100자):\n" + txt.slice(0, 100);
                 } catch(e) {
                   info += "❌ 에러: " + (e.message || String(e));
                 }
+                // 저장(POST) 경로도 따로 테스트 — 데이터는 안 건드리는 ping
+                // (GET은 되는데 POST만 막히는 경우를 구분하기 위함)
+                info += "\n\n📤 저장(POST) 테스트 중...\n";
+                try {
+                  const res2 = await fetch(GAS_URL, {
+                    method: "POST",
+                    body: JSON.stringify({ pushAction: "ping" }),
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    redirect: "follow"
+                  });
+                  info += "응답코드: " + res2.status + "\n";
+                  const txt2 = await res2.text();
+                  info += "응답내용 (처음 100자):\n" + txt2.slice(0, 100);
+                } catch(e) {
+                  info += "❌ 에러: " + (e.message || String(e));
+                }
+                // 버킷별 데이터 크기 — 구글 시트는 셀당 5만 자 한도라 초과하면 저장이 거부됨
+                try {
+                  const sizes = Object.entries(splitData(data))
+                    .map(([k, v]) => {
+                      const len = JSON.stringify(v).length;
+                      return k + ": " + (len / 1000).toFixed(1) + "k" + (len > 45000 ? " ⚠️" : "");
+                    })
+                    .join("\n");
+                  info += "\n\n📦 데이터 크기 (시트당 한도 50k):\n" + sizes;
+                } catch(e) {}
                 alert(info);
               }}
               style={{
@@ -507,8 +534,8 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
                                       ? {...p, status:"paid", paid:true, paidDate: todayStr()}
                                       : p
                                   );
-                                  await persist({...data, payments: newPayments});
-                                  showToast("✅ 받음으로 표시!");
+                                  const ok = await persist({...data, payments: newPayments});
+                                  if (ok) showToast("✅ 받음으로 표시!");
                                 }}
                                 style={{
                                   marginTop: 6,
@@ -576,8 +603,8 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
                           const newShifts = (data.shifts||[]).map(sh =>
                             sh.id === s.id ? {...sh, actualStart: time} : sh
                           );
-                          await persist({...data, shifts: newShifts});
-                          showToast(`✅ 출근 완료 (${time})`);
+                          const ok = await persist({...data, shifts: newShifts});
+                          if (ok) showToast(`✅ 출근 완료 (${time})`);
                           notifyClockEvent("in", time, s.start);
                         };
 

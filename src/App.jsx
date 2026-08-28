@@ -261,11 +261,12 @@ export default function App() {
     const ok = await saveData(nd);
     if (!ok) {
       // 저장 실패 → 기기에 보관됨 + 자동 재전송 예정 (유실 아님)
-      setToast("연결이 불안정해요 — 입력 내용은 기기에 보관했고, 연결되면 자동으로 올라가요");
-      setTimeout(() => setToast(""), 5000);
+      setToast("⚠️ 서버 저장 실패 (" + (GS.LAST_ERROR || "원인 미상") + ") — 입력 내용은 이 기기에 보관했고, 연결되면 자동으로 올라가요");
+      setTimeout(() => setToast(""), 6000);
     }
     setStorageMode(GS.STORAGE_MODE);
     setLastError(GS.LAST_ERROR);
+    return ok;
   }, []);
 
   const showToast = useCallback((msg) => {
