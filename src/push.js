@@ -78,6 +78,42 @@ export async function enablePush(gasUrl, staffId, staffName) {
   return true;
 }
 
+// 자동 토큰 갱신 — 앱 열 때마다 조용히 호출.
+// 이미 이 기기에서 알림을 켠 적이 있으면(권한 granted + 로컬 기록) 최신 FCM 토큰을 받아
+// 바뀌었을 때만 GAS에 다시 등록한다. 권한 요청·토스트 없음, 실패해도 조용히 무시.
+// → iOS 웹 토큰이 가끔 갱신돼 알림이 끊기던 문제를, 앱을 여는 것만으로 자동 복구.
+export async function refreshPush(gasUrl, staffId, staffName) {
+  try {
+    if (!PUSH_CONFIG.enabled || !pushSupported()) return false;
+    if (Notification.permission !== "granted") return false;
+    let prev = null;
+    try { prev = localStorage.getItem(LS_KEY(staffId)); } catch (e) {}
+    if (!prev) return false; // 이 기기에서 켠 적 없으면 건드리지 않음
+
+    const reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    await navigator.serviceWorker.ready;
+    const { initializeApp, getApps } = await import("firebase/app");
+    const { getMessaging, getToken } = await import("firebase/messaging");
+    const app = getApps().length ? getApps()[0] : initializeApp(PUSH_CONFIG.firebase);
+    const token = await getToken(getMessaging(app), {
+      vapidKey: PUSH_CONFIG.vapidKey,
+      serviceWorkerRegistration: reg
+    });
+    if (!token || token === prev) return false; // 토큰 그대로면 재등록 불필요
+
+    await postToGas(gasUrl, {
+      pushAction: "subscribe",
+      staffId,
+      staffName: staffName || "",
+      token,
+      ua: navigator.userAgent.slice(0, 120),
+      at: new Date().toISOString()
+    });
+    try { localStorage.setItem(LS_KEY(staffId), token); } catch (e) {}
+    return true;
+  } catch (e) { return false; }
+}
+
 // 알림 끄기 — 토큰 삭제 + GAS에서 구독 제거
 export async function disablePush(gasUrl, staffId) {
   let token = null;

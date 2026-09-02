@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { PUSH_CONFIG } from "./pushConfig";
-import { isIOS, isStandalone, pushSupported, pushEnabledHere, enablePush, disablePush } from "./push";
+import { isIOS, isStandalone, pushSupported, pushEnabledHere, enablePush, disablePush, refreshPush } from "./push";
 import { easter, addD, dstr, hessenHols, DOW_KO, isInVacation, setCurrentVacations, getSlots, dowKo, todayStr, curYM, nextYM, prevYM, getCarryIn, fmtE, fmt, nid, shiftHours, actualMinutes, timeDiff, needsAttention, REPORT_KINDS, reportKindLabel, getMonthRange } from "./lib/utils";
 import { css } from "./styles";
 import { ErrorBoundary, Screen } from "./components/ErrorBoundary";
@@ -161,6 +161,17 @@ export default function App() {
       if (adminDeviceFlag && !enteredAdminByUrl) {
         setModal({ type: "pin" });
       }
+
+      // 알림 토큰 자동 갱신 (앱 열 때마다) — iOS 웹 토큰이 바뀌어 알림이 끊기던 문제 방지.
+      // 이 기기에서 켠 적 있는 구독만 최신 토큰으로 조용히 재등록. 켠 적 없으면 아무 것도 안 함.
+      try {
+        refreshPush(GAS_URL, "admin", "관리자");
+        const sess = loadSession();
+        if (sess && sess.staffId != null) {
+          const st = ((d || DEFAULT_DATA).staff || []).find(s => s.id === sess.staffId);
+          refreshPush(GAS_URL, sess.staffId, st ? st.name : "");
+        }
+      } catch (e) {}
     })();
   }, []);
 
