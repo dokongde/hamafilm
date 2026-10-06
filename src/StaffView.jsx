@@ -5,7 +5,7 @@ import { StaffPushCard } from "./components/push-cards";
 import { stockBySku, stockColor, itemImage } from "./lib/inventory";
 
 // ─── 직원용 소품 재고 (가격·재고만, 원가·마진 숨김) ───
-const SV_CAT_ORDER = ["키링", "이어폰·홀더", "그립톡", "가방·파우치", "안경", "헤어", "주얼리", "기타"];
+const SV_CAT_ORDER = ["키링", "이어폰·홀더", "그립톡", "가방·파우치", "안경", "헤어", "주얼리", "옷", "기타"];
 function StaffInventoryCard({ data }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");

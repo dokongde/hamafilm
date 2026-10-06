@@ -5,7 +5,7 @@ import { EUR_KRW, stockBySku, stockColor, itemRow, inventoryTotals, itemImage } 
 // ===== 소품 재고 (관리자) =====
 // 상품 마스터(inventory) + 재고 장부(stockMoves). 현재 재고 = 이동 합계.
 // 관리자: 원가·마진·재고금액·누적 순익까지. 직원 화면은 StaffView에서 가격·재고만 표시.
-const CAT_ORDER = ["키링", "이어폰·홀더", "그립톡", "가방·파우치", "안경", "헤어", "주얼리", "기타"];
+const CAT_ORDER = ["키링", "이어폰·홀더", "그립톡", "가방·파우치", "안경", "헤어", "주얼리", "옷", "기타"];
 const won = n => "₩" + Math.round(n || 0).toLocaleString("ko-KR");
 
 function InventoryTab({ data, setModal }) {
