@@ -165,7 +165,9 @@ function CsvImportModal({ data, persist, close, toast }) {
           const date = `${m[3]}-${m[2]}-${m[1]}`;
           let amt = parseAmt(r[iAmount]);
           // 환불(Rückerstattung)의 경우 CSV에 이미 음수(-)로 기록되어 있음 → 그대로 사용
-          const cat = classifySumup(r[iDesc]);
+          // 등록된 소품과 매칭되면 '악세서리(acc)' 매출로 잡는다 (사진 매출 오염·슈킹 왜곡 방지)
+          const good = matchGood(r[iDesc]);
+          let cat = good ? "acc" : classifySumup(r[iDesc]);
           const isCash = (r[iMethod] || "") === "Bar";
           const day = ensure(date);
           if (cat === "sumup") day[isCash?"pc":"pk"] += amt;
@@ -174,8 +176,7 @@ function CsvImportModal({ data, persist, close, toast }) {
           else if (cat === "joys") day[isCash?"jc":"jk"] += amt;
           else { unknownList.push({desc: r[iDesc], date, amount: amt}); day[isCash?"pc":"pk"] += amt; }
 
-          // 소품 재고 자동 차감: Beschreibung이 상품과 매칭되면 판매/환불 이동 기록
-          const good = matchGood(r[iDesc]);
+          // 소품 재고 자동 차감: 매칭된 상품이면 판매/환불 이동 기록
           if (good) {
             const isRefund = (r[iTyp] || "").toLowerCase().includes("rücker") || amt < 0;
             const q = Math.max(1, Math.round(Math.abs(parseAmt(iQty >= 0 ? r[iQty] : "")) || 1));
