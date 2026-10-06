@@ -18,7 +18,7 @@
 // 이 파일은 Apps Script 편집기(시트 바운드 프로젝트)의 Code.gs 와 동일하게 유지할 것.
 
 const SHEET_ID = '1IQM_WFcTPZL48F4Ir17VhMy14yxa9lEj2ViIjmnvh9k';
-const BUCKETS = ['data', 'shifts', 'sales', 'completions', 'expenses', 'payments', 'cancellations', 'payrollRecs'];
+const BUCKETS = ['data', 'shifts', 'sales', 'completions', 'expenses', 'payments', 'cancellations', 'payrollRecs', 'inventory', 'stockMoves'];
 const CHUNK = 40000; // 셀당 저장 글자수 (한계 50,000보다 여유 있게)
 
 function getSheet(name) {

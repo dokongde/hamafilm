@@ -7,6 +7,7 @@ import { AddPayrollModal, EditPaymentModal, ExpenseModal, HistoricalModal } from
 import { ChecklistRunModal, ChecklistManageModal } from "../components/modals/checklist";
 import { ManualSettingsModal, CsvImportModal } from "../components/modals/settings";
 import { KioskGateModal } from "../components/kiosk";
+import { StockMoveModal, ItemEditModal } from "../components/modals/inventory";
 
   // ─── 모달 ───
 function ModalHost({ closeModal, data, doPinInput, gSt, isVac, lockKiosk, modal, persist, pinBuf, pinErr, setModal, setPinBuf, setPinErr, setSvDate, setSvSel, setSvSid, showToast, unlockKiosk, vacName }) {
@@ -192,6 +193,8 @@ function ModalHost({ closeModal, data, doPinInput, gSt, isVac, lockKiosk, modal,
     if (modal.type === "checklistManage") return <ChecklistManageModal data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "manualSettings") return <ManualSettingsModal data={data} persist={persist} close={closeModal} toast={showToast} />;
     if (modal.type === "historical") return <HistoricalModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "stockMove") return <StockMoveModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
+    if (modal.type === "itemEdit") return <ItemEditModal modal={modal} data={data} persist={persist} close={closeModal} toast={showToast} />;
 
     return null;
 }

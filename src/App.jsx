@@ -22,6 +22,7 @@ import { SalaryTab } from "./tabs/SalaryTab";
 import { SalesTab } from "./tabs/SalesTab";
 import { ReconTab } from "./tabs/ReconTab";
 import { StatsTab } from "./tabs/StatsTab";
+import { InventoryTab } from "./tabs/InventoryTab";
 
 
 
@@ -332,6 +333,7 @@ export default function App() {
     ["salary", "💰 급여"],
     ["sales", "📊 매출"],
     ["recon", "🔍 대사"],
+    ["inventory", "📦 재고"],
     ["stats", "📈 통계"]
   ];
 
@@ -377,6 +379,7 @@ export default function App() {
             {adminTab === "salary" ? <ErrorBoundary label="급여"><SalaryTab data={data} persist={persist} setModal={setModal} gSt={gSt} toast={showToast} /></ErrorBoundary> : null}
             {adminTab === "sales" ? <ErrorBoundary label="매출"><SalesTab data={data} persist={persist} setModal={setModal} /></ErrorBoundary> : null}
             {adminTab === "recon" ? <ErrorBoundary label="대사"><ReconTab data={data} persist={persist} /></ErrorBoundary> : null}
+            {adminTab === "inventory" ? <ErrorBoundary label="재고"><InventoryTab data={data} setModal={setModal} /></ErrorBoundary> : null}
             {adminTab === "stats" ? <ErrorBoundary label="통계"><StatsTab data={data} setModal={setModal} persist={persist} /></ErrorBoundary> : null}
           </div>
         </div>

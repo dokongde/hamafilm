@@ -142,7 +142,9 @@ const BUCKETS = {
   completions: ["completions"],
   expenses: ["expenses"],
   payments: ["payments"],
-  cancellations: ["cancellations"]
+  cancellations: ["cancellations"],
+  inventory: ["inventory"],
+  stockMoves: ["stockMoves"]
 };
 
 // 데이터 키 → 시트 이름 역매핑
@@ -181,7 +183,7 @@ async function loadData(){
         try { localStorage.setItem(PIN_KEY, merged[PIN_KEY]); } catch(e) {}
       }
       // STORE_KEY 키들이 비어있으면 빈 배열로 초기화
-      ["staff","shifts","fixed","vacations","sales","payrollRecords","payments","expenses","historicalData","cancellations","checklists","completions"].forEach(k => {
+      ["staff","shifts","fixed","vacations","sales","payrollRecords","payments","expenses","historicalData","cancellations","checklists","completions","inventory","stockMoves"].forEach(k => {
         if (!merged[k]) merged[k] = [];
       });
       if (!merged.settings) merged.settings = {};
