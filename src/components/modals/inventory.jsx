@@ -2,7 +2,7 @@ import { useState } from "react";
 import { todayStr, nid } from "../../lib/utils";
 import { MOVE_TYPES, stockBySku } from "../../lib/inventory";
 
-const CATEGORIES = ["키링", "이어폰·홀더", "그립톡", "가방·파우치", "안경", "기타"];
+const CATEGORIES = ["키링", "이어폰·홀더", "그립톡", "가방·파우치", "안경", "헤어", "주얼리", "기타"];
 
 // ─── 입출고 (재고 이동) ───
 function StockMoveModal({ modal, data, persist, close, toast }) {
