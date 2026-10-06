@@ -2,7 +2,7 @@ import { useState } from "react";
 import { hessenHols, DOW_KO, getSlots, dowKo, todayStr, curYM, getCarryIn, fmtE, nid, shiftHours, openVertrag } from "./lib/utils";
 import { GAS_URL, saveSession, clearSession, notifyLoginEvent } from "./data/gas";
 import { StaffPushCard } from "./components/push-cards";
-import { stockBySku, stockColor } from "./lib/inventory";
+import { stockBySku, stockColor, itemImage } from "./lib/inventory";
 
 // ─── 직원용 소품 재고 (가격·재고만, 원가·마진 숨김) ───
 const SV_CAT_ORDER = ["키링", "이어폰·홀더", "그립톡", "가방·파우치", "안경", "기타"];
@@ -32,6 +32,9 @@ function StaffInventoryCard({ data }) {
             const n = stock[it.sku] || 0;
             return (
               <div key={it.sku} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 2px",borderBottom:"1px solid #f2f2f2"}}>
+                <img src={itemImage(it)} alt="" loading="lazy"
+                  onError={e => { e.currentTarget.style.visibility = "hidden"; }}
+                  style={{width:44,height:44,borderRadius:7,objectFit:"cover",flexShrink:0,background:"#f2f2f4"}} />
                 <div style={{minWidth:0,flex:1}}>
                   <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name_ko}</div>
                   {it.options ? <div style={{fontSize:10,color:"#aaa"}}>{it.options}</div> : null}

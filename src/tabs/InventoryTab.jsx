@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { fmtE } from "../lib/utils";
-import { EUR_KRW, stockBySku, stockColor, itemRow, inventoryTotals } from "../lib/inventory";
+import { EUR_KRW, stockBySku, stockColor, itemRow, inventoryTotals, itemImage } from "../lib/inventory";
 
 // ===== 소품 재고 (관리자) =====
 // 상품 마스터(inventory) + 재고 장부(stockMoves). 현재 재고 = 이동 합계.
@@ -54,6 +54,9 @@ function InventoryTab({ data, setModal }) {
         return (
           <div key={it.sku} className="card" style={{marginBottom:8,padding:"10px 12px"}}>
             <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start"}}>
+              <img src={itemImage(it)} alt="" loading="lazy"
+                onError={e => { e.currentTarget.style.visibility = "hidden"; }}
+                style={{width:56,height:56,borderRadius:8,objectFit:"cover",flexShrink:0,background:"#f2f2f4"}} />
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:700,fontSize:14}}>{it.name_ko}</div>
                 <div style={{fontSize:11,color:"#888",marginTop:1}}>

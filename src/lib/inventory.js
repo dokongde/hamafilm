@@ -27,6 +27,11 @@ export function stockBySku(moves) {
   return map;
 }
 
+// 상품 사진 주소: 직접 지정(image)이 있으면 그것, 없으면 /goods/<SKU>.jpg (public/goods에 있는 사진)
+export function itemImage(it) {
+  return (it && it.image) || (it && it.sku ? `/goods/${it.sku}.jpg` : "");
+}
+
 // 재고 색상: 0 빨강, 1 주황, 그 외 기본
 export function stockColor(n) {
   if (n <= 0) return "#e03131";
