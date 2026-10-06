@@ -52,6 +52,22 @@ function CsvImportModal({ data, persist, close, toast }) {
   const [unknown, setUnknown] = useState([]);
   const [parsing, setParsing] = useState(false);
   const [files, setFiles] = useState({ sumup: null, hama: null });
+  const [goodsMoves, setGoodsMoves] = useState([]); // SumUp에서 감지한 소품 판매/환불 → 재고 차감 예정
+
+  // SumUp Beschreibung → 소품 상품 매칭 (SKU 포함 / sumup_name / name_de)
+  const matchGood = (desc) => {
+    const d = (desc || "").trim().toLowerCase();
+    if (d.length < 3) return null;
+    const inv = (data.inventory || []).filter(it => it.active !== false);
+    // 1) 설명에 SKU(HF-xxx)가 들어있으면 그걸로
+    let hit = inv.find(it => it.sku && d.includes(String(it.sku).toLowerCase()));
+    if (hit) return hit;
+    // 2) sumup_name / name_de 정확 또는 포함 일치 (짧은 쪽이 긴 쪽에 포함)
+    return inv.find(it => {
+      const names = [it.sumup_name, it.name_de].map(x => (x || "").trim().toLowerCase()).filter(x => x.length >= 4);
+      return names.some(nm => d === nm || d.includes(nm) || nm.includes(d));
+    }) || null;
+  };
 
   // 분류 함수: SUMUP의 Beschreibung 보고 카테고리 결정
   const classifySumup = (desc) => {
@@ -111,6 +127,7 @@ function CsvImportModal({ data, persist, close, toast }) {
     setParsing(true);
     const dailyData = {}; // {date: {pc,pk,...}}
     const unknownList = [];
+    const goodsList = []; // 소품 판매/환불 감지분
     const ensure = (date) => {
       if (!dailyData[date]) {
         dailyData[date] = {pc:0,pk:0,mc:0,mk:0,ac:0,ak:0,nc:0,nk:0,jc:0,jk:0,sk:0};
@@ -137,6 +154,8 @@ function CsvImportModal({ data, persist, close, toast }) {
         const iMethod = idx("Zahlungsmethode");
         const iDesc = idx("Beschreibung");
         const iAmount = idx("Preis (brutto)");
+        const iTxId = idx("Transaktions-ID") >= 0 ? idx("Transaktions-ID") : idx("Transaktionscode");
+        const iQty = idx("Menge") >= 0 ? idx("Menge") : idx("Anzahl");
         for (let i = 1; i < rows.length; i++) {
           const r = rows[i];
           if (!r[iDate]) continue;
@@ -154,6 +173,19 @@ function CsvImportModal({ data, persist, close, toast }) {
           else if (cat === "nail") day[isCash?"nc":"nk"] += amt;
           else if (cat === "joys") day[isCash?"jc":"jk"] += amt;
           else { unknownList.push({desc: r[iDesc], date, amount: amt}); day[isCash?"pc":"pk"] += amt; }
+
+          // 소품 재고 자동 차감: Beschreibung이 상품과 매칭되면 판매/환불 이동 기록
+          const good = matchGood(r[iDesc]);
+          if (good) {
+            const isRefund = (r[iTyp] || "").toLowerCase().includes("rücker") || amt < 0;
+            const q = Math.max(1, Math.round(Math.abs(parseAmt(iQty >= 0 ? r[iQty] : "")) || 1));
+            const txid = (iTxId >= 0 && r[iTxId]) ? String(r[iTxId]).trim() : `${date}|${i}`;
+            goodsList.push({
+              id: 0, date, sku: good.sku, name: good.name_ko,
+              type: isRefund ? "환불" : "판매", qty: q,
+              sourceId: "sumup:" + txid, memo: "SumUp 자동"
+            });
+          }
         }
       }
     }
@@ -191,9 +223,14 @@ function CsvImportModal({ data, persist, close, toast }) {
       if (sum === 0) delete dailyData[d];
     });
 
+    // 이미 가져온 거래(sourceId)는 제외 — 같은 CSV 재업로드해도 중복 차감 안 됨
+    const existingSrc = new Set((data.stockMoves || []).map(mv => String(mv.sourceId || "") + "|" + mv.sku));
+    const dedupGoods = goodsList.filter(g => !existingSrc.has(g.sourceId + "|" + g.sku));
+
     setParsed(dailyData);
     setAffectedKeys([...affectedKeys]);
     setUnknown(unknownList);
+    setGoodsMoves(dedupGoods);
     setParsing(false);
   };
 
@@ -241,9 +278,20 @@ function CsvImportModal({ data, persist, close, toast }) {
       }
     });
 
-    await persist({...data, sales: newSales});
+    // 소품 재고 자동 차감분 추가 (sourceId로 중복 방지 — 이미 processFiles에서 dedup됨)
+    let newStockMoves = [...(data.stockMoves || [])];
+    let stockMsg = "";
+    if (goodsMoves.length) {
+      let maxId = newStockMoves.reduce((mx, m) => Math.max(mx, Number(m.id) || 0), 0);
+      goodsMoves.forEach(g => { maxId += 1; newStockMoves.push({ ...g, id: maxId, savedAt: new Date().toISOString() }); });
+      const sold = goodsMoves.filter(g => g.type === "판매").reduce((a, g) => a + g.qty, 0);
+      const ref = goodsMoves.filter(g => g.type === "환불").reduce((a, g) => a + g.qty, 0);
+      stockMsg = ` · 📦 소품 ${sold}개 차감${ref ? ` / 환불 ${ref}개 복구` : ""}`;
+    }
+
+    await persist({...data, sales: newSales, stockMoves: newStockMoves});
     close();
-    toast(`✅ ${added}일 추가, ${updated}일 ${mode==="overwrite"?"덮어씀":"합산"}!`);
+    toast(`✅ ${added}일 추가, ${updated}일 ${mode==="overwrite"?"덮어씀":"합산"}!${stockMsg}`);
   };
 
   // 미리보기 합계
@@ -372,6 +420,21 @@ function CsvImportModal({ data, persist, close, toast }) {
               ⚠️ 표시 = 이미 매출이 있는 날짜
             </div>
 
+            {/* 소품 재고 자동 차감 미리보기 */}
+            {goodsMoves.length > 0 ? (
+              <div style={{background:"rgba(47,158,68,.1)",border:"1px solid #2f9e44",borderRadius:6,padding:8,marginBottom:10,fontSize:11}}>
+                <strong style={{color:"#2f9e44"}}>📦 소품 재고 자동 차감 ({goodsMoves.length}건)</strong>
+                <div style={{marginTop:4,maxHeight:70,overflowY:"auto"}}>
+                  {goodsMoves.map((g, i) => (
+                    <div key={i} style={{color:"#555"}}>
+                      {g.date} · {g.name} · {g.type === "환불" ? "환불 +" : "판매 −"}{g.qty}
+                    </div>
+                  ))}
+                </div>
+                <div style={{color:"#888",marginTop:4,fontSize:10}}>이미 가져온 거래는 자동 제외돼요(중복 차감 없음).</div>
+              </div>
+            ) : null}
+
             {/* 미분류 항목 경고 */}
             {unknown.length > 0 ? (
               <div style={{background:"rgba(255,212,0,.15)",border:"1px solid #ffd400",borderRadius:6,padding:8,marginBottom:10,fontSize:11}}>
@@ -387,7 +450,7 @@ function CsvImportModal({ data, persist, close, toast }) {
             ) : null}
 
             <div className="mf" style={{flexWrap:"wrap"}}>
-              <button className="btn bs" onClick={()=>setParsed(null)}>← 다시</button>
+              <button className="btn bs" onClick={()=>{setParsed(null); setGoodsMoves([]);}}>← 다시</button>
               <button className="btn bs" onClick={close}>취소</button>
               <button className="btn bd sm" onClick={()=>doImport("overwrite")}>덮어쓰기</button>
               <button className="btn bp" onClick={()=>doImport("merge")}>합산 입력</button>

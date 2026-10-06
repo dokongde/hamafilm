@@ -1,6 +1,55 @@
+import { useState } from "react";
 import { hessenHols, DOW_KO, getSlots, dowKo, todayStr, curYM, getCarryIn, fmtE, nid, shiftHours, openVertrag } from "./lib/utils";
 import { GAS_URL, saveSession, clearSession, notifyLoginEvent } from "./data/gas";
 import { StaffPushCard } from "./components/push-cards";
+import { stockBySku, stockColor } from "./lib/inventory";
+
+// ─── 직원용 소품 재고 (가격·재고만, 원가·마진 숨김) ───
+const SV_CAT_ORDER = ["키링", "이어폰·홀더", "그립톡", "가방·파우치", "안경", "기타"];
+function StaffInventoryCard({ data }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const inv = (data.inventory || []).filter(it => it.active !== false);
+  if (!inv.length) return null;
+  const stock = stockBySku(data.stockMoves || []);
+  let list = inv.slice().sort((a, b) =>
+    (SV_CAT_ORDER.indexOf(a.category) - SV_CAT_ORDER.indexOf(b.category)) || String(a.sku).localeCompare(String(b.sku))
+  );
+  if (q.trim()) {
+    const s = q.trim().toLowerCase();
+    list = list.filter(it => (it.name_ko || "").toLowerCase().includes(s) || (it.name_de || "").toLowerCase().includes(s));
+  }
+  return (
+    <div className="card" style={{marginTop:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setOpen(o=>!o)}>
+        <div style={{fontSize:13,fontWeight:700}}>🛍️ 소품 가격·재고</div>
+        <span style={{fontSize:12,color:"#4dabf7"}}>{open ? "접기 ▲" : "보기 ▼"}</span>
+      </div>
+      {open ? (
+        <div style={{marginTop:10}}>
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="상품 검색…" style={{width:"100%",marginBottom:8}} />
+          {list.map(it => {
+            const n = stock[it.sku] || 0;
+            return (
+              <div key={it.sku} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 2px",borderBottom:"1px solid #f2f2f2"}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name_ko}</div>
+                  {it.options ? <div style={{fontSize:10,color:"#aaa"}}>{it.options}</div> : null}
+                </div>
+                <div style={{fontSize:14,fontWeight:700,whiteSpace:"nowrap"}}>€{it.price_eur}</div>
+                <div style={{fontSize:13,fontWeight:800,color:stockColor(n),minWidth:38,textAlign:"right"}}>
+                  {n <= 0 ? "품절" : n + "개"}
+                </div>
+              </div>
+            );
+          })}
+          {!list.length ? <div style={{textAlign:"center",color:"#aaa",padding:14,fontSize:12}}>검색 결과 없음</div> : null}
+          <div style={{fontSize:10,color:"#aaa",marginTop:8}}>💡 <span style={{color:"#e03131"}}>품절</span>·<span style={{color:"#e8590c"}}>1개</span>는 사장님께 알려주세요.</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
   // ─── 직원 화면 ───
 function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, persist, setModal, setSvCalM, setSvCalY, setSvDate, setSvSel, setSvSid, showToast, storageMode, svCalM, svCalY, svDate, svSel, svSid, vacName }) {
@@ -241,6 +290,9 @@ function StaffView({ adminDevice, data, gSt, isVac, lastError, manualRefresh, pe
 
               {/* 출근 알림 카드 (푸시 설정 완료 전에는 미노출) */}
               <StaffPushCard staffId={svSid} staffName={gSt(svSid)?.name} toast={showToast} />
+
+              {/* 소품 가격·재고 (직원용 — 원가·마진 숨김) */}
+              <StaffInventoryCard data={data} />
 
               {/* 체크리스트 + 매뉴얼 카드 */}
               <div className="card">
