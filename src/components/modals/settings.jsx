@@ -85,7 +85,9 @@ function CsvImportModal({ data, persist, close, toast }) {
     if (d.includes("accessor") || d.includes("clothing") ||
         d.includes("key ring") || d.includes("keyring") ||
         d.includes("keychain") || d.includes("kette") ||
-        d.includes("schmuck")) return "acc";
+        d.includes("schmuck") ||
+        // 기타 옷(가격 직접 입력) + 옛 즉석판매 이름
+        d.includes("kleidung") || d.includes("miffi") || d.includes("pop socket")) return "acc";
     return "unknown";
   };
 

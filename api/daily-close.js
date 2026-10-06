@@ -48,7 +48,11 @@ const KEYWORD_RULES = [
   ["zoebomul", ["zoesbomul", "zoebomul", "zoes"]],
   ["nagel", ["nagel"]],
   ["accessory", ["cosmetics", "shemonbred", "sunscreen", "mist", "bag", "clothing", "earing",
-    "keyring", "keychain", "schlusselanhanger", "accessor", "pimple", "patch", "kitty", "blackbear"]],
+    "keyring", "keychain", "schlusselanhanger", "accessor", "pimple", "patch", "kitty", "blackbear",
+    // 소품 재고 상품(독일어명) + 옷 — 2026-10 등록분. 모르는 이름은 매출에서 빠지므로 여기 추가해야 집계됨
+    "anhanger", "griff", "tasche", "brille", "kopfhorer", "squishy", "stoffbeutel", "popsocket", "miffi",
+    "glitzerherz", "haarklammer", "haarreif", "ohrstecker", "creolen", "ringset", "kreuzmuster", "hausschuhe",
+    "jeans", "strick", "cardigan", "kleidung", "mutze"]],
 ];
 function categorize(name) {
   const n = normalize(name);
