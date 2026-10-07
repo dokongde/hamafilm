@@ -46,11 +46,105 @@ function writeBucket(sheet, value) {
     i = end;
   }
   if (!parts.length) parts.push(['']);
+  // 한 번의 setValues로 쓰기 (지우기→쓰기 두 단계면 그 사이 읽는 기기가 빈 데이터를 볼 수 있음).
+  // 예전보다 조각 수가 줄면 남는 아래 칸은 '' 로 같이 덮어 비운다.
   const lastRow = Math.max(sheet.getLastRow(), 1);
-  sheet.getRange(1, 1, Math.max(lastRow, parts.length), 1).clearContent();
-  const target = sheet.getRange(1, 1, parts.length, 1);
+  const n = Math.max(lastRow, parts.length);
+  while (parts.length < n) parts.push(['']);
+  const target = sheet.getRange(1, 1, n, 1);
   target.setNumberFormat('@');
   target.setValues(parts);
+  SpreadsheetApp.flush();
+}
+
+// ===== 레코드 단위 병합 저장 (2026-10-07) =====
+// 여러 기기가 동시에 저장해도 서로 덮어쓰지 않도록, 앱은 "바뀐 것만" 보내고 서버가 현재 내용에 합친다.
+// body.merge = { 버킷이름: { 키이름: op } }
+//   op.t === 'list'    : 배열 레코드 단위 — {key:'id'|'date'|'sku', add:[레코드], patch:[{k, set:{}, unset:[]}], del:[k]}
+//   op.t === 'obj'     : 객체 필드 단위 — {set:{}, unset:[]}
+//   op.t === 'replace' : 통째로 교체 — {v}
+// 반환: { ok:true, merged: { 버킷이름: '합친 뒤 JSON 문자열' } }
+function applyMerge_(merge, opId) {
+  const out = {};
+  // 같은 저장이 재전송된 경우(응답이 늦어 앱이 다시 보냄) 두 번 적용하지 않음 — 현재 내용만 돌려줌
+  const cache = CacheService.getScriptCache();
+  if (opId && cache.get('op_' + opId)) {
+    Object.keys(merge || {}).forEach(function (b) { out[b] = readBucket(getSheet(b)) || '{}'; });
+    return { ok: true, merged: out, dup: true };
+  }
+  Object.keys(merge || {}).forEach(function (b) {
+    const sheet = getSheet(b);
+    const raw = readBucket(sheet);
+    let cur = {};
+    if (raw) {
+      try { cur = JSON.parse(raw); } catch (err) { throw new Error('bucket parse fail: ' + b); }
+    }
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) cur = {};
+    const ops = merge[b] || {};
+    Object.keys(ops).forEach(function (k) {
+      const op = ops[k] || {};
+      if (op.t === 'replace') {
+        cur[k] = op.v;
+      } else if (op.t === 'obj') {
+        const o = (cur[k] && typeof cur[k] === 'object' && !Array.isArray(cur[k])) ? cur[k] : {};
+        Object.keys(op.set || {}).forEach(function (f) { o[f] = op.set[f]; });
+        (op.unset || []).forEach(function (f) { delete o[f]; });
+        cur[k] = o;
+      } else if (op.t === 'list') {
+        cur[k] = mergeList_(Array.isArray(cur[k]) ? cur[k] : [], op);
+      }
+    });
+    const s = JSON.stringify(cur);
+    writeBucket(sheet, s);
+    out[b] = s;
+  });
+  if (opId) cache.put('op_' + opId, '1', 1800);
+  return { ok: true, merged: out };
+}
+
+function mergeList_(arr, op) {
+  const key = op.key || 'id';
+  const idx = {};
+  arr.forEach(function (r, i) { if (r && r[key] != null) idx[String(r[key])] = i; });
+  // 수정: 그 사이 다른 기기가 지운 레코드면 건너뜀(삭제 우선)
+  (op.patch || []).forEach(function (p) {
+    const i = idx[String(p.k)];
+    if (i === undefined) return;
+    const r = arr[i];
+    Object.keys(p.set || {}).forEach(function (f) { r[f] = p.set[f]; });
+    (p.unset || []).forEach(function (f) { delete r[f]; });
+  });
+  // 추가: 같은 id가 이미 있으면(두 기기가 같은 번호를 매김) 새 번호로, 날짜·SKU 키면 필드 합치기
+  let maxId = 0;
+  if (key === 'id') arr.forEach(function (r) { const n = Number(r && r.id) || 0; if (n > maxId) maxId = n; });
+  (op.add || []).forEach(function (r) {
+    if (!r || typeof r !== 'object') return;
+    const k = String(r[key]);
+    if (idx[k] !== undefined) {
+      if (JSON.stringify(arr[idx[k]]) === JSON.stringify(r)) return; // 똑같은 레코드가 이미 있음(재전송) → 무시
+      if (key === 'id') {
+        maxId += 1;
+        const copy = {}; Object.keys(r).forEach(function (f) { copy[f] = r[f]; }); copy.id = maxId;
+        arr.push(copy); idx[String(copy.id)] = arr.length - 1;
+      } else {
+        const i = idx[k]; const m = arr[i];
+        Object.keys(r).forEach(function (f) { m[f] = r[f]; });
+      }
+      return;
+    }
+    arr.push(r); idx[k] = arr.length - 1;
+    if (key === 'id') { const n = Number(r.id) || 0; if (n > maxId) maxId = n; }
+  });
+  const del = {};
+  (op.del || []).forEach(function (k) { del[String(k)] = true; });
+  return arr.filter(function (r) { return !(r && del[String(r[key])]); });
+}
+
+// 쓰기는 한 번에 하나씩 (동시에 들어온 저장끼리 순서대로 처리)
+function withLock_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try { return fn(); } finally { lock.releaseLock(); }
 }
 
 // A1, A2, A3… 를 이어 붙여 반환 (빈 셀에서 멈춤). 옛 방식(A1 하나)도 그대로 읽힘.
@@ -78,7 +172,7 @@ function doGet(e) {
   if (p.save) {
     // 저장: ?bucket=shifts&save=...
     const targetBucket = bucket || 'data';
-    writeBucket(getSheet(targetBucket), p.save);
+    withLock_(function () { writeBucket(getSheet(targetBucket), p.save); });
     return jsonOut_({ ok: true, bucket: targetBucket });
   }
 
@@ -103,20 +197,31 @@ function doPost(e) {
     body = JSON.parse(e.postData.contents);
   } catch (err) {
     // 일반 텍스트로 보냈으면 data 시트에 저장 (기존 호환성)
-    writeBucket(getSheet('data'), e.postData.contents);
+    withLock_(function () { writeBucket(getSheet('data'), e.postData.contents); });
     return jsonOut_({ ok: true, bucket: 'data' });
   }
 
+  if (body.merge) {
+    // 레코드 단위 병합 저장 (앱 새 버전) — 동시 저장끼리 덮어쓰지 않음
+    try {
+      return jsonOut_(withLock_(function () { return applyMerge_(body.merge, body.opId); }));
+    } catch (err) {
+      return jsonOut_({ ok: false, error: String(err && err.message || err) });
+    }
+  }
+
   if (body.multi) {
-    // 여러 시트 한 번에 저장: {multi: true, buckets: {shifts: '...', sales: '...'}}
-    Object.entries(body.buckets || {}).forEach(([name, value]) => {
-      writeBucket(getSheet(name), value);
+    // 여러 시트 통째로 저장 (옛 앱·자동화 호환): {multi: true, buckets: {shifts: '...', sales: '...'}}
+    withLock_(function () {
+      Object.entries(body.buckets || {}).forEach(([name, value]) => {
+        writeBucket(getSheet(name), value);
+      });
     });
     return jsonOut_({ ok: true, multi: true });
   }
 
   // 단일 시트: {bucket: 'shifts', data: '...'}
-  writeBucket(getSheet(body.bucket || 'data'), body.data || '');
+  withLock_(function () { writeBucket(getSheet(body.bucket || 'data'), body.data || ''); });
   return jsonOut_({ ok: true, bucket: body.bucket || 'data' });
 }
 

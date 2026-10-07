@@ -99,24 +99,27 @@ const GS = {
   LAST_SAVE_AT: 0,
   LAST_USER_INTERACTION: 0,
   LAST_SYNCED_JSON: "",
-  BASELINE_JSON: "",     // 이 기기가 마지막으로 서버와 확인한 상태 (dirty 버킷 판정 + 3-way 병합 기준)
-  LAST_SAVED_DATA: null, // 마지막 저장 성공 시 실제 서버로 간 데이터 (sales 병합 결과 포함)
-  PENDING: false // 서버 전송 실패로 기기에만 보관된 변경이 있음 (연결 복구 시 자동 재전송)
+  BASELINE_JSON: "",     // 이 기기가 마지막으로 서버와 맞춘 상태 (보낼 변경 = CURRENT − BASELINE)
+  CURRENT: null,         // 이 기기의 최신 데이터 (화면에 보이는 것과 같은 객체)
+  DIRTY: false,          // 아직 서버로 안 보낸 변경이 있음
+  SAVE_PROMISE: null,    // 진행 중인 저장 (저장은 한 번에 하나씩)
+  LAST_SAVED_DATA: null, // 호환용
+  PENDING: false         // 서버 전송 실패로 기기에만 보관된 변경이 있음 (연결 복구 시 자동 재전송)
 };
 
 // ===== 미전송 변경 보관 (저장 실패 시 유실 방지) =====
-// 저장은 전체 스냅샷 단위라, 마지막 실패 스냅샷 하나만 보관하면 됨 (최신 의도가 항상 포함).
+// 데이터와 함께 "그 데이터가 출발한 기준(base)"도 저장 → 나중에 보내도 바뀐 것만 정확히 합쳐짐.
 const PENDING_KEY = "hamafilm_pending_v1";
-const PENDING_MAX_AGE = 2 * 3600 * 1000; // 2시간 지난 미전송본은 폐기 (다른 기기 최신 데이터를 옛날 것으로 덮지 않게)
-function setPendingSnapshot(d) {
+const PENDING_MAX_AGE = 7 * 24 * 3600 * 1000; // 바뀐 것만 합치므로 오래돼도 안전 — 7일까지 보관
+function setPendingSnapshot(d, baseJson) {
   GS.PENDING = true;
-  try { localStorage.setItem(PENDING_KEY, JSON.stringify({ ts: Date.now(), data: d })); } catch (e) {}
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify({ ts: Date.now(), data: d, base: baseJson || "" })); } catch (e) {}
 }
 function clearPendingSnapshot() {
   GS.PENDING = false;
   try { localStorage.removeItem(PENDING_KEY); } catch (e) {}
 }
-function loadPendingSnapshot() {
+function loadPendingRecord() {
   try {
     const raw = localStorage.getItem(PENDING_KEY);
     if (!raw) { GS.PENDING = false; return null; }
@@ -126,13 +129,23 @@ function loadPendingSnapshot() {
       return null;
     }
     GS.PENDING = true;
-    return p.data;
+    return p;
   } catch (e) { return null; }
+}
+// 앱 시작 시: 미전송 변경이 있으면 그걸 화면 데이터로 쓰고 기준도 복원
+function loadPendingSnapshot() {
+  const p = loadPendingRecord();
+  if (!p) return null;
+  let base = p.base;
+  if (!base) { try { base = localStorage.getItem(STORE_KEY) || ""; } catch (e) { base = ""; } } // 옛 형식: 마지막 서버 확인본
+  if (base) GS.BASELINE_JSON = base;
+  GS.CURRENT = p.data;
+  GS.DIRTY = true;
+  return p.data;
 }
 
 // ===== 다중 시트 분산 저장 =====
 // 각 데이터 종류를 별도 시트에 저장하여 50KB 한계 회피
-// 시트 이름 매핑: 어떤 데이터가 어떤 시트로 가는지
 const BUCKETS = {
   // 자주 변경 + 핵심 (기본 시트)
   data: ["staff", "fixed", "vacations", "checklists", "settings", "historicalData", "payrollRecords"],
@@ -153,63 +166,64 @@ Object.entries(BUCKETS).forEach(([bucket, keys]) => {
   keys.forEach(k => { KEY_TO_BUCKET[k] = bucket; });
 });
 
-async function loadData(){
+// 응답이 오래 안 오면 끊고 재시도 (GAS가 가끔 수십 초 걸림 — 무한 대기 방지)
+async function fetchT(url, opts, ms) {
+  const c = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const t = c ? setTimeout(() => c.abort(), ms) : null;
+  try { return await fetch(url, c ? { ...(opts || {}), signal: c.signal } : (opts || {})); }
+  finally { if (t) clearTimeout(t); }
+}
+
+// 서버 응답(j.data: 버킷→JSON 문자열)을 앱 데이터 객체로. 한 버킷이라도 깨져 있으면 null (빈 걸로 착각하지 않게)
+function bucketsToData(bucketStrs) {
+  const merged = {};
+  for (const [bucket, jsonStr] of Object.entries(bucketStrs || {})) {
+    if (!jsonStr) continue;
+    let parsed;
+    try { parsed = JSON.parse(jsonStr); } catch (e) { console.warn("parse fail", bucket, e); return null; }
+    if (parsed && parsed[STORE_KEY]) Object.assign(merged, parsed[STORE_KEY]); // 옛 형식
+    else Object.assign(merged, parsed);
+  }
+  return merged;
+}
+function fillDefaults(merged) {
+  if (merged[PIN_KEY]) { try { localStorage.setItem(PIN_KEY, merged[PIN_KEY]); } catch (e) {} }
+  ["staff","shifts","fixed","vacations","sales","payrollRecords","payments","expenses","historicalData","cancellations","checklists","completions","inventory","stockMoves"].forEach(k => {
+    if (!merged[k]) merged[k] = [];
+  });
+  if (!merged.settings) merged.settings = {};
+  return merged;
+}
+
+// opts.fallback: 실패 시 기기에 남은 마지막 서버본을 돌려줌 (앱 첫 실행용). 주기적 동기화에선 false → 실패하면 null(화면 유지)
+async function loadData(opts){
+  const fallback = !opts || opts.fallback !== false;
   try {
-    // 모든 시트 한 번에 가져오기
-    const res = await fetch(GAS_URL, { method: "GET", redirect: "follow" });
+    const res = await fetchT(GAS_URL, { method: "GET", redirect: "follow" }, 30000);
     if (!res.ok) throw new Error("HTTP " + res.status);
     const j = await res.json();
-    GS.STORAGE_MODE = "shared";
+    let merged = null;
+    if (j && j.multi && j.data) merged = bucketsToData(j.data);
+    else if (j && j.data) { try { const parsed = JSON.parse(j.data); merged = parsed[STORE_KEY] || null; } catch (e) {} }
+    if (!merged) throw new Error("데이터 형식 오류");
+    fillDefaults(merged);
+    GS.STORAGE_MODE = GS.PENDING ? "local" : "shared";
     GS.LAST_ERROR = "";
-
-    if (j && j.multi && j.data) {
-      // 신규 다중 시트 형식: 각 시트의 데이터를 합쳐서 하나의 데이터 객체로
-      const merged = {};
-      Object.entries(j.data).forEach(([bucket, jsonStr]) => {
-        if (!jsonStr) return;
-        try {
-          const parsed = JSON.parse(jsonStr);
-          // data 시트는 기존 호환성: STORE_KEY 안에 모든 게 들어있을 수 있음
-          if (parsed[STORE_KEY]) {
-            Object.assign(merged, parsed[STORE_KEY]);
-          } else {
-            // 새 형식: 시트 이름이 키
-            Object.assign(merged, parsed);
-          }
-        } catch(e) { console.warn("parse fail", bucket, e); }
-      });
-      // PIN 추출
-      if (merged[PIN_KEY]) {
-        try { localStorage.setItem(PIN_KEY, merged[PIN_KEY]); } catch(e) {}
-      }
-      // STORE_KEY 키들이 비어있으면 빈 배열로 초기화
-      ["staff","shifts","fixed","vacations","sales","payrollRecords","payments","expenses","historicalData","cancellations","checklists","completions","inventory","stockMoves"].forEach(k => {
-        if (!merged[k]) merged[k] = [];
-      });
-      if (!merged.settings) merged.settings = {};
-      GS.BASELINE_JSON = JSON.stringify(merged); // 서버와 맞춘 시점 기록 (이후 저장은 이 기준과 다른 버킷만 전송)
-      return merged;
-    }
-
-    if (j && j.data) {
-      // 옛날 단일 시트 형식 (호환성)
-      try {
-        const parsed = JSON.parse(j.data);
-        const d = parsed[STORE_KEY] || null;
-        if (d) GS.BASELINE_JSON = JSON.stringify(d);
-        return d;
-      } catch(e) { return null; }
-    }
-    return null;
+    GS.BASELINE_JSON = JSON.stringify(merged);
+    GS.CURRENT = merged;
+    GS.DIRTY = false;
+    try { localStorage.setItem(STORE_KEY, GS.BASELINE_JSON); } catch (e) {}
+    return merged;
   } catch(e) {
     GS.LAST_ERROR = e.message || String(e);
     console.error("GAS load error", e);
   }
-  // 로컬 폴백
+  if (!fallback) return null;
+  // 로컬 폴백 (앱 첫 실행 때 오프라인)
   try {
     GS.STORAGE_MODE = "local";
     const r = localStorage.getItem(STORE_KEY);
-    if (r) return JSON.parse(r);
+    if (r) { const d = JSON.parse(r); GS.BASELINE_JSON = r; GS.CURRENT = d; return d; }
   } catch(e) {}
   return null;
 }
@@ -237,7 +251,6 @@ function splitData(d) {
   return buckets;
 }
 
-// 이 기기가 마지막으로 서버와 확인한 상태 (없으면 마지막 저장 성공본으로 폴백)
 function getBaseline() {
   if (GS.BASELINE_JSON) {
     try { return JSON.parse(GS.BASELINE_JSON); } catch (e) {}
@@ -249,143 +262,219 @@ function getBaseline() {
   return null;
 }
 
-// 저장 직전 서버의 sales만 가볍게 가져오기 (병합용) — 실패 시 null
-async function fetchServerSales() {
-  try {
-    const res = await fetch(GAS_URL, { method: "GET", redirect: "follow" });
-    if (!res.ok) return null;
-    const j = await res.json();
-    if (j && j.multi && j.data && j.data.sales != null) {
-      const parsed = JSON.parse(j.data.sales || "{}");
-      const arr = Array.isArray(parsed) ? parsed : (parsed.sales || []);
-      return Array.isArray(arr) ? arr : [];
-    }
-  } catch (e) {}
-  return null;
-}
-
-// sales 3-way 병합 (로컬 / baseline / 서버) — 날짜가 키.
-// 이 기기가 실제로 바꾼 행만 반영하고, 서버에만 있는 행(야간 자동입력 등)은 보존한다.
-// - 이 기기가 안 건드린 행 → 서버 버전 승 (자동입력이 채운 kd/nx 등 유지)
-// - 이 기기가 수정한 행 → 로컬 승, 단 로컬에 없는 필드(kd/nx/rc 등)는 서버에서 보충
-// - 서버에만 있는 행 → baseline에도 없으면 신규(자동입력) → 보존 / baseline에 있으면 이 기기가 지운 것 → 삭제 반영
-// - 로컬에만 있는 행 → baseline과 같으면 다른 기기가 지운 것 → 삭제 존중, 다르면 신규/수정 → 유지
-function sameRow(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
-function mergeSales(localArr, baseArr, serverArr) {
-  const L = new Map(), B = new Map(), S = new Map();
-  (Array.isArray(localArr) ? localArr : []).forEach(r => { if (r && r.date) L.set(r.date, r); });
-  (Array.isArray(baseArr) ? baseArr : []).forEach(r => { if (r && r.date) B.set(r.date, r); });
-  (Array.isArray(serverArr) ? serverArr : []).forEach(r => { if (r && r.date) S.set(r.date, r); });
-  const out = [];
-  new Set([...L.keys(), ...S.keys()]).forEach(date => {
-    const l = L.get(date), b = B.get(date), s = S.get(date);
-    if (l && s) {
-      if (b && sameRow(l, b)) out.push({ ...s });
-      else { const m = { ...s, ...l }; if (s.id != null) m.id = s.id; out.push(m); }
-    } else if (l && !s) {
-      if (!(b && sameRow(l, b))) out.push({ ...l });
-    } else if (!l && s) {
-      if (!b) out.push({ ...s });
-    }
-  });
-  out.sort((a, b2) => String(a.date).localeCompare(String(b2.date)));
-  // id 중복/누락 정리 (기기 간 같은 id를 다른 날짜에 붙였을 수 있음)
-  let maxId = 0;
-  out.forEach(r => { const n = Number(r.id) || 0; if (n > maxId) maxId = n; });
+// ===== 레코드 단위 병합 (2026-10-07) =====
+// 예전엔 버킷(예: 시프트 전체)을 통째로 올려서, 여러 기기가 동시에 쓰면 나중에 저장한 쪽이 앞사람 입력을 지웠음.
+// 이제 "바뀐 레코드·필드만" 보내고 서버(GAS applyMerge_)가 현재 내용에 합친다. 서버와 같은 규칙을 앱에도 둬서
+// 저장 도중 새로 입력한 것도 서버 결과 위에 다시 얹을 수 있게 한다(rebase).
+const LIST_KEY = { sales: "date", inventory: "sku" }; // 나머지 배열은 id
+function keyFieldOf(k) { return LIST_KEY[k] || "id"; }
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function listUsable(arr, key) {
+  if (!Array.isArray(arr)) return false;
   const seen = new Set();
-  out.forEach(r => { const n = Number(r.id) || 0; if (!n || seen.has(n)) { maxId += 1; r.id = maxId; } else seen.add(n); });
+  for (const r of arr) {
+    if (!r || typeof r !== "object" || r[key] == null) return false;
+    const k = String(r[key]);
+    if (seen.has(k)) return false;
+    seen.add(k);
+  }
+  return true;
+}
+function diffList(local, base, key) {
+  const L = new Map(local.map(r => [String(r[key]), r]));
+  const B = new Map(base.map(r => [String(r[key]), r]));
+  const add = [], patch = [], del = [];
+  for (const [k, r] of L) {
+    const b = B.get(k);
+    if (!b) { add.push(r); continue; }
+    if (same(r, b)) continue;
+    const set = {}, unset = [];
+    for (const f of Object.keys(r)) if (!same(r[f], b[f])) set[f] = r[f];
+    for (const f of Object.keys(b)) if (!(f in r)) unset.push(f);
+    patch.push({ k: r[key], set, unset });
+  }
+  for (const [k, b] of B) if (!L.has(k)) del.push(b[key]);
+  if (!add.length && !patch.length && !del.length) return null;
+  return { t: "list", key, add, patch, del };
+}
+function diffObj(local, base) {
+  const set = {}, unset = [];
+  for (const f of Object.keys(local)) if (!same(local[f], base[f])) set[f] = local[f];
+  for (const f of Object.keys(base)) if (!(f in local)) unset.push(f);
+  if (!Object.keys(set).length && !unset.length) return null;
+  return { t: "obj", set, unset };
+}
+// local과 base의 차이 → { 버킷: { 키: op } }
+function buildMergeOps(local, base) {
+  const lb = splitData(local), bb = splitData(base || {});
+  const ops = {};
+  for (const [bucket, content] of Object.entries(lb)) {
+    const bcontent = bb[bucket] || {};
+    for (const k of Object.keys(content)) {
+      const lv = content[k], bv = bcontent[k];
+      if (same(lv, bv)) continue;
+      let op;
+      if (Array.isArray(lv)) {
+        const key = keyFieldOf(k);
+        op = (Array.isArray(bv) && listUsable(lv, key) && listUsable(bv, key)) ? diffList(lv, bv, key) : { t: "replace", v: lv };
+      } else if (lv && typeof lv === "object") {
+        op = diffObj(lv, (bv && typeof bv === "object" && !Array.isArray(bv)) ? bv : {});
+      } else {
+        op = { t: "replace", v: lv };
+      }
+      if (op) { (ops[bucket] = ops[bucket] || {})[k] = op; }
+    }
+  }
+  return ops;
+}
+// 서버 mergeList_ 와 같은 규칙 (앱에서 rebase할 때 사용)
+function mergeListLocal(arr, op) {
+  arr = arr.map(r => (r && typeof r === "object") ? { ...r } : r);
+  const key = op.key || "id";
+  const idx = {};
+  arr.forEach((r, i) => { if (r && r[key] != null) idx[String(r[key])] = i; });
+  (op.patch || []).forEach(p => {
+    const i = idx[String(p.k)];
+    if (i === undefined) return;
+    const r = arr[i];
+    Object.keys(p.set || {}).forEach(f => { r[f] = p.set[f]; });
+    (p.unset || []).forEach(f => { delete r[f]; });
+  });
+  let maxId = 0;
+  if (key === "id") arr.forEach(r => { const n = Number(r && r.id) || 0; if (n > maxId) maxId = n; });
+  (op.add || []).forEach(r => {
+    if (!r || typeof r !== "object") return;
+    const k = String(r[key]);
+    if (idx[k] !== undefined) {
+      if (same(arr[idx[k]], r)) return;
+      if (key === "id") { maxId += 1; const copy = { ...r, id: maxId }; arr.push(copy); idx[String(copy.id)] = arr.length - 1; }
+      else { Object.assign(arr[idx[k]], r); }
+      return;
+    }
+    arr.push({ ...r }); idx[k] = arr.length - 1;
+    if (key === "id") { const n = Number(r.id) || 0; if (n > maxId) maxId = n; }
+  });
+  const del = new Set((op.del || []).map(String));
+  return arr.filter(r => !(r && del.has(String(r[key]))));
+}
+function applyOpsLocal(data, ops) {
+  const out = { ...data };
+  for (const bucketOps of Object.values(ops || {})) {
+    for (const [k, op] of Object.entries(bucketOps)) {
+      if (op.t === "replace") out[k] = op.v;
+      else if (op.t === "obj") {
+        const o = { ...((out[k] && typeof out[k] === "object" && !Array.isArray(out[k])) ? out[k] : {}) };
+        Object.keys(op.set || {}).forEach(f => { o[f] = op.set[f]; });
+        (op.unset || []).forEach(f => { delete o[f]; });
+        out[k] = o;
+      } else if (op.t === "list") out[k] = mergeListLocal(Array.isArray(out[k]) ? out[k] : [], op);
+    }
+  }
   return out;
 }
 
-// 1회 전송 시도 — 성공 시 true, 실패 시 GS.LAST_ERROR 세팅 후 false
-// ⚠️ 전체 덮어쓰기 금지: baseline 대비 바뀐 버킷만 전송한다.
-//   (예전엔 매 저장마다 모든 버킷을 통째로 올려서, 오래 열려있던 기기가
-//    저장하면 그 사이 자동입력된 매출 날짜들이 통째로 사라지는 사고가 반복됐음)
-async function saveOnce(d){
+// 화면에서 생긴 변경(nd = prev를 고친 것)을 이 기기의 최신 데이터(GS.CURRENT)에 반영하고 그 결과를 돌려줌.
+// 보통은 nd 그대로지만, 저장 도중 서버 결과가 들어와 CURRENT가 바뀌었으면 "고친 부분만" 얹는다.
+function applyLocalEdit(prev, nd) {
+  if (!GS.CURRENT || GS.CURRENT === prev) GS.CURRENT = nd;
+  else GS.CURRENT = applyOpsLocal(GS.CURRENT, buildMergeOps(nd, prev));
+  GS.DIRTY = true;
+  return GS.CURRENT;
+}
+
+function newOpId() {
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+async function postMerge(ops, opId) {
   try {
-    const baseline = getBaseline();
-    const buckets = splitData(d);
-    const baseBuckets = baseline ? splitData(baseline) : null;
-    const dirty = {};
-    Object.entries(buckets).forEach(([name, content]) => {
-      if (!baseBuckets || JSON.stringify(baseBuckets[name]) !== JSON.stringify(content)) dirty[name] = content;
-    });
-    if (!Object.keys(dirty).length) { GS.LAST_SAVED_DATA = d; return true; } // 보낼 변경 없음
-    // sales 버킷은 서버본과 3-way 병합 후 전송 (자동입력 행 보존 + 삭제 존중)
-    let effective = d;
-    if (dirty.sales) {
-      const serverSales = await fetchServerSales();
-      if (serverSales) {
-        const merged = mergeSales(d.sales, baseline ? baseline.sales : null, serverSales);
-        effective = { ...d, sales: merged };
-        dirty.sales = { ...dirty.sales, sales: merged };
-      }
-    }
-    const payload = { multi: true, buckets: {} };
-    Object.entries(dirty).forEach(([name, content]) => {
-      payload.buckets[name] = JSON.stringify(content);
-    });
-    const res = await fetch(GAS_URL, {
+    const res = await fetchT(GAS_URL, {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ merge: ops, opId }),
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       redirect: "follow"
-    });
-    if (res.ok) {
-      const txt = await res.text();
-      try {
-        const result = JSON.parse(txt);
-        if (result.ok) {
-          GS.LAST_SAVED_DATA = effective;
-          GS.BASELINE_JSON = JSON.stringify(effective);
-          return true;
-        }
-        GS.LAST_ERROR = "서버 거부: " + txt.slice(0, 100);
-      } catch(e) {
-        GS.LAST_ERROR = "응답 파싱 실패: " + txt.slice(0, 100);
-      }
-    } else {
-      GS.LAST_ERROR = "HTTP " + res.status;
-    }
-  } catch(e) {
+    }, 45000);
+    if (!res.ok) { GS.LAST_ERROR = "HTTP " + res.status; return null; }
+    const txt = await res.text();
+    let j;
+    try { j = JSON.parse(txt); } catch (e) { GS.LAST_ERROR = "응답 파싱 실패: " + txt.slice(0, 100); return null; }
+    if (!j.ok || !j.merged) { GS.LAST_ERROR = "서버 거부: " + (j.error || txt.slice(0, 100)); return null; }
+    return j;
+  } catch (e) {
     GS.LAST_ERROR = e.message || String(e);
-    console.error("GAS save error", e);
+    return null;
   }
-  return false;
 }
 
-async function saveData(d){
-  GS.SAVING = true;
-  try {
-    // 일시적 버벅임(GAS 콜드스타트·와이파이 출렁임) 대비 자동 재시도: 즉시 → 1초 → 2.5초
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await new Promise(r => setTimeout(r, attempt === 1 ? 1000 : 2500));
-      if (await saveOnce(d)) {
-        GS.STORAGE_MODE = "shared";
-        GS.LAST_ERROR = "";
-        GS.LAST_SAVE_AT = Date.now();
-        clearPendingSnapshot();
-        // STORE_KEY = 마지막 서버 확인본 (sales 병합 결과 포함) — 오프라인 폴백 + baseline 폴백 겸용
-        try { localStorage.setItem(STORE_KEY, JSON.stringify(GS.LAST_SAVED_DATA || d)); } catch(e) {}
-        return true;
+// 저장: GS.CURRENT와 기준(BASELINE)의 차이만 서버로 보내 합친다. 한 번에 하나씩, 도중 변경은 이어서 보냄.
+// 반환 true = 전부 서버 반영 / false = 기기에 보관(연결되면 자동 재전송)
+async function saveData(d) {
+  if (d) { GS.CURRENT = d; GS.DIRTY = true; }
+  if (GS.SAVE_PROMISE) return GS.SAVE_PROMISE;
+  GS.SAVE_PROMISE = (async () => {
+    GS.SAVING = true;
+    let ok = true;
+    try {
+      while (GS.DIRTY) {
+        GS.DIRTY = false;
+        const sent = GS.CURRENT;
+        const base = getBaseline();
+        if (!base) { ok = false; GS.LAST_ERROR = "서버 기준 데이터 없음 — 새로고침 필요"; break; }
+        const ops = buildMergeOps(sent, base);
+        if (!Object.keys(ops).length) continue;
+        const opId = newOpId();
+        let res = null;
+        // 재시도: 즉시 → 1초 → 2.5초 (opId가 같아서 서버가 두 번 적용하지 않음)
+        for (let attempt = 0; attempt < 3 && !res; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, attempt === 1 ? 1000 : 2500));
+          res = await postMerge(ops, opId);
+        }
+        if (!res) { ok = false; GS.DIRTY = true; break; }
+        // 서버가 합친 결과(다른 기기 입력 포함)로 해당 버킷 교체
+        const serverPart = bucketsToData(res.merged);
+        if (!serverPart) { ok = false; GS.DIRTY = true; GS.LAST_ERROR = "서버 응답 형식 오류"; break; }
+        const merged = fillDefaults({ ...sent, ...serverPart });
+        GS.BASELINE_JSON = JSON.stringify(merged);
+        try { localStorage.setItem(STORE_KEY, GS.BASELINE_JSON); } catch (e) {}
+        if (GS.CURRENT === sent) {
+          GS.CURRENT = merged;
+        } else {
+          // 저장하는 동안 새로 입력한 게 있음 → 그 부분만 서버 결과 위에 다시 얹고 한 번 더 보냄
+          GS.CURRENT = applyOpsLocal(merged, buildMergeOps(GS.CURRENT, sent));
+          GS.DIRTY = true;
+        }
       }
+    } catch (e) {
+      ok = false; GS.DIRTY = true; GS.LAST_ERROR = e.message || String(e);
+    } finally {
+      GS.SAVING = false;
+      GS.SAVE_PROMISE = null;
     }
-  } finally {
-    GS.SAVING = false;
-  }
-  // 최종 실패 → 미전송 스냅샷으로만 보관 (연결 복구 시 자동 재전송, 유실 없음)
-  // ⚠️ STORE_KEY는 덮지 않는다 — STORE_KEY는 "서버와 확인된 상태"여야 baseline 폴백이 정확함.
-  GS.STORAGE_MODE = "local";
-  setPendingSnapshot(d);
-  return false;
+    if (ok) {
+      GS.STORAGE_MODE = "shared";
+      GS.LAST_ERROR = "";
+      GS.LAST_SAVE_AT = Date.now();
+      GS.LAST_SAVED_DATA = GS.CURRENT;
+      clearPendingSnapshot();
+      return true;
+    }
+    GS.STORAGE_MODE = "local";
+    setPendingSnapshot(GS.CURRENT, GS.BASELINE_JSON);
+    return false;
+  })();
+  return GS.SAVE_PROMISE;
 }
 
-// 미전송 스냅샷 재전송 시도 — 성공하면 true (pending 해제됨)
+// 미전송 변경 재전송 시도 — 성공하면 true (GS.CURRENT가 서버와 합쳐진 최신)
 async function flushPending(){
   if (GS.SAVING) return false;
-  const pending = loadPendingSnapshot();
-  if (!pending) return false;
-  return await saveData(pending);
+  if (!GS.DIRTY) {
+    const p = loadPendingRecord();
+    if (!p) return true;
+    if (p.base) GS.BASELINE_JSON = p.base;
+    if (!GS.CURRENT) GS.CURRENT = p.data;
+    GS.DIRTY = true;
+  }
+  return await saveData();
 }
 
 async function fetchAll() {
@@ -399,38 +488,23 @@ async function loadPin(){
     const p = localStorage.getItem(PIN_KEY);
     if (p) return p;
   } catch(e) {}
-  // 못 찾으면 데이터에서
+  // 못 찾으면 서버의 data 버킷만 읽기 (전체 loadData는 화면 기준을 바꾸므로 쓰지 않음)
   try {
-    const d = await loadData();
-    if (d && d[PIN_KEY]) return d[PIN_KEY];
+    const res = await fetchT(GAS_URL + "?bucket=data", { method: "GET", redirect: "follow" }, 30000);
+    const j = await res.json();
+    const d = j && j.data ? JSON.parse(j.data) : null;
+    const pin = d && (d[PIN_KEY] || (d[STORE_KEY] && d[STORE_KEY][PIN_KEY]));
+    if (pin) { try { localStorage.setItem(PIN_KEY, pin); } catch (e) {} return pin; }
   } catch(e) {}
   return DEFAULT_PIN;
 }
 
 async function savePin(p){
-  // PIN은 data 시트에 직접 저장
-  try {
-    const all = await loadData();
-    all[PIN_KEY] = p;
-    const buckets = splitData(all);
-    buckets.data[PIN_KEY] = p; // 명시적
-    const payload = {
-      multi: true,
-      buckets: {}
-    };
-    Object.entries(buckets).forEach(([name, content]) => {
-      payload.buckets[name] = JSON.stringify(content);
-    });
-    await fetch(GAS_URL, {
-      method: "POST",
-      body: JSON.stringify(payload),
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      redirect: "follow"
-    });
-    try { localStorage.setItem(PIN_KEY, p); } catch(e) {}
-    return;
-  } catch(e) {}
+  // PIN만 병합 저장 (예전엔 모든 시트를 통째로 다시 써서 다른 사람 입력을 지울 수 있었음)
   try { localStorage.setItem(PIN_KEY, p); } catch(e) {}
+  try {
+    await postMerge({ data: { [PIN_KEY]: { t: "replace", v: p } } }, newOpId());
+  } catch(e) {}
 }
 
-export { DEFAULT_PIN, STORE_KEY, PIN_KEY, SESSION_KEY, DEFAULT_DATA, GAS_URL, saveSession, clearSession, loadSession, notifyLoginEvent, GS, BUCKETS, KEY_TO_BUCKET, splitData, loadData, saveData, fetchAll, loadPin, savePin, flushPending, loadPendingSnapshot };
+export { DEFAULT_PIN, STORE_KEY, PIN_KEY, SESSION_KEY, DEFAULT_DATA, GAS_URL, saveSession, clearSession, loadSession, notifyLoginEvent, GS, BUCKETS, KEY_TO_BUCKET, splitData, loadData, saveData, fetchAll, loadPin, savePin, flushPending, loadPendingSnapshot, applyLocalEdit, buildMergeOps, applyOpsLocal };

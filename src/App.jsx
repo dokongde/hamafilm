@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { PUSH_CONFIG } from "./pushConfig";
 import { isIOS, isStandalone, pushSupported, pushEnabledHere, enablePush, disablePush, refreshPush } from "./push";
 import { easter, addD, dstr, hessenHols, DOW_KO, isInVacation, setCurrentVacations, getSlots, dowKo, todayStr, curYM, nextYM, prevYM, getCarryIn, fmtE, fmt, nid, shiftHours, actualMinutes, timeDiff, needsAttention, REPORT_KINDS, reportKindLabel, getMonthRange } from "./lib/utils";
@@ -9,7 +9,7 @@ import { FixedTab } from "./tabs/FixedTab";
 import { StaffMgmtTab } from "./tabs/StaffMgmtTab";
 import { StaffView } from "./StaffView";
 import { ModalHost } from "./components/ModalHost";
-import { DEFAULT_PIN, STORE_KEY, PIN_KEY, SESSION_KEY, DEFAULT_DATA, GAS_URL, saveSession, clearSession, loadSession, notifyLoginEvent, GS, splitData, loadData, saveData, fetchAll, loadPin, savePin, flushPending, loadPendingSnapshot } from "./data/gas";
+import { DEFAULT_PIN, STORE_KEY, PIN_KEY, SESSION_KEY, DEFAULT_DATA, GAS_URL, saveSession, clearSession, loadSession, notifyLoginEvent, GS, splitData, loadData, saveData, fetchAll, loadPin, savePin, flushPending, loadPendingSnapshot, applyLocalEdit } from "./data/gas";
 import { EditShiftModal, AddShiftModal, AddFixedModal, AddVacModal, GenFixedModal } from "./components/modals/shift";
 import { PinChange, AddStaffModal } from "./components/modals/staff";
 import { AddSalesModal, CashOutModal } from "./components/modals/sales";
@@ -73,6 +73,9 @@ import { InventoryTab } from "./tabs/InventoryTab";
 
 export default function App() {
   const [data, setData] = useState(null);
+  // 화면에 지금 보이는 데이터 (persist가 "무엇을 고쳤는지" 계산하는 기준)
+  const dataRef = useRef(null);
+  dataRef.current = data;
   const [pin, setPin] = useState(DEFAULT_PIN);
   const [mode, setMode] = useState("staff");
   const [adminTab, setAdminTab] = useState("schedule");
@@ -111,7 +114,7 @@ export default function App() {
       if (pending) {
         d = pending;
         GS.STORAGE_MODE = "local";
-        flushPending().then(ok => { if (ok) { setStorageMode(GS.STORAGE_MODE); setLastError(GS.LAST_ERROR); } });
+        flushPending().then(ok => { if (ok && GS.CURRENT) { setData(GS.CURRENT); } setStorageMode(GS.STORAGE_MODE); setLastError(GS.LAST_ERROR); });
       } else {
         d = await loadData();
       }
@@ -181,10 +184,11 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(async () => {
       // 1. 저장 중 또는 방금 저장한 경우 (30초 이내)
-      if (GS.SAVING || (Date.now() - GS.LAST_SAVE_AT < 30000)) return;
+      if (GS.SAVING || GS.DIRTY || (Date.now() - GS.LAST_SAVE_AT < 30000)) return;
       // 미전송 변경 재전송은 화면과 무관하니 모달·입력 중이어도 시도 (성공 전엔 아래에서 서버 덮어쓰기 차단)
       if (GS.PENDING) {
         const ok = await flushPending();
+        if (ok && GS.CURRENT) setData(GS.CURRENT);
         setStorageMode(GS.STORAGE_MODE);
         setLastError(GS.LAST_ERROR);
         if (!ok) return;
@@ -205,7 +209,7 @@ export default function App() {
       if (Date.now() - GS.LAST_USER_INTERACTION < 30000) return;
 
       try {
-        const d = await loadData();
+        const d = await loadData({ fallback: false }); // 실패하면 null — 화면 데이터를 옛 캐시로 되돌리지 않음
         if (d) {
           const newJson = JSON.stringify(d);
           if (newJson !== GS.LAST_SYNCED_JSON) {
@@ -247,13 +251,15 @@ export default function App() {
         const ok = await flushPending();
         setStorageMode(GS.STORAGE_MODE);
         setLastError(GS.LAST_ERROR);
+        if (ok && GS.CURRENT) setData(GS.CURRENT);
         if (!ok) {
           setToast("아직 안 올라간 변경이 있어요 — 인터넷 연결을 확인해주세요");
           setTimeout(() => setToast(""), 3000);
           return;
         }
       }
-      const d = await loadData();
+      const d = await loadData({ fallback: false });
+      if (!d) throw new Error(GS.LAST_ERROR || "load fail");
       if (d) {
         GS.LAST_SYNCED_JSON = JSON.stringify(d);
         setData(d);
@@ -268,9 +274,19 @@ export default function App() {
   }, []);
 
   const persist = useCallback(async (nd) => {
-    setData(nd);
-    GS.LAST_SYNCED_JSON = JSON.stringify(nd); // 자기가 저장한 건 동기화 비교 기준에 반영
-    const ok = await saveData(nd);
+    // nd = 화면 데이터(dataRef)를 고친 것. 이 기기의 최신 데이터에 "고친 부분만" 반영해 화면에 보여주고,
+    // 서버엔 바뀐 레코드만 보내 다른 기기 입력과 합친다 (예전: 통째로 덮어써서 동시 입력이 사라짐).
+    const next = applyLocalEdit(dataRef.current, nd);
+    dataRef.current = next;
+    setData(next);
+    GS.LAST_SYNCED_JSON = JSON.stringify(next);
+    const ok = await saveData();
+    // 서버가 합친 최신(다른 직원 입력 포함)으로 화면 갱신
+    if (GS.CURRENT && GS.CURRENT !== dataRef.current) {
+      dataRef.current = GS.CURRENT;
+      setData(GS.CURRENT);
+      GS.LAST_SYNCED_JSON = JSON.stringify(GS.CURRENT);
+    }
     if (!ok) {
       // 저장 실패 → 기기에 보관됨 + 자동 재전송 예정 (유실 아님)
       setToast("연결이 불안정해요 — 입력 내용은 기기에 보관했고, 연결되면 자동으로 올라가요");
